@@ -478,43 +478,62 @@ function BottomNav({ tab, onChange }) {
 // =====================================================================
 // Painel (dashboard) — cotação pública, indicadores e gráficos
 // =====================================================================
-function buildMonthlySeries(custos, months = 12) {
-  const now = new Date();
-  const buckets = [];
-  for (let i = months - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    buckets.push({
-      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
-      label: `${MESES_ABREV[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`,
-      total: 0,
-    });
+function buildSerieTemporal(custosBase, mode, temFiltro, dateFrom, dateTo) {
+  let start, end;
+  if (temFiltro) {
+    end = dateTo ? new Date(`${dateTo}T00:00:00`) : new Date();
+    start = dateFrom ? new Date(`${dateFrom}T00:00:00`) : new Date(end);
+    if (!dateFrom) {
+      if (mode === "mensal") start.setMonth(start.getMonth() - 11);
+      else start.setFullYear(start.getFullYear() - 4);
+    }
+  } else {
+    end = new Date();
+    start = new Date(end);
+    if (mode === "mensal") start.setMonth(start.getMonth() - 11);
+    else start.setFullYear(start.getFullYear() - 4);
   }
+
+  const buckets = [];
+  if (mode === "mensal") {
+    const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+    const endCursor = new Date(end.getFullYear(), end.getMonth(), 1);
+    let guard = 0;
+    while (cursor <= endCursor && guard < 60) {
+      buckets.push({
+        key: `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`,
+        label: `${MESES_ABREV[cursor.getMonth()]}/${String(cursor.getFullYear()).slice(2)}`,
+        total: 0,
+      });
+      cursor.setMonth(cursor.getMonth() + 1);
+      guard++;
+    }
+  } else {
+    let y = start.getFullYear();
+    const endY = end.getFullYear();
+    let guard = 0;
+    while (y <= endY && guard < 30) {
+      buckets.push({ key: String(y), label: String(y), total: 0 });
+      y++;
+      guard++;
+    }
+  }
+
   const byKey = Object.fromEntries(buckets.map((b) => [b.key, b]));
-  custos.forEach((c) => {
-    const key = c.data_custo?.slice(0, 7);
+  custosBase.forEach((c) => {
+    const key = mode === "mensal" ? c.data_custo?.slice(0, 7) : c.data_custo?.slice(0, 4);
     if (key && byKey[key]) byKey[key].total += Number(c.valor_total || 0);
   });
   return buckets;
 }
-function buildYearlySeries(custos, years = 5) {
-  const now = new Date();
-  const buckets = [];
-  for (let i = years - 1; i >= 0; i--) {
-    const y = String(now.getFullYear() - i);
-    buckets.push({ key: y, label: y, total: 0 });
-  }
-  const byKey = Object.fromEntries(buckets.map((b) => [b.key, b]));
-  custos.forEach((c) => {
-    const key = c.data_custo?.slice(0, 4);
-    if (key && byKey[key]) byKey[key].total += Number(c.valor_total || 0);
-  });
-  return buckets;
-}
-function buildComparativoLotes(lotesAtivos, rateios) {
+function buildComparativoLotes(lotesAtivos, rateios, custosById, temFiltro, dateFrom, dateTo) {
   return lotesAtivos
     .map((l) => ({
       nome: l.identificador,
-      custo: rateios.filter((r) => r.lote_id === l.id).reduce((s, r) => s + Number(r.valor_rateado || 0), 0),
+      custo: rateios
+        .filter((r) => r.lote_id === l.id)
+        .filter((r) => !temFiltro || inDateRange(custosById[r.custo_id]?.data_custo, dateFrom, dateTo))
+        .reduce((s, r) => s + Number(r.valor_rateado || 0), 0),
     }))
     .sort((a, b) => b.custo - a.custo)
     .slice(0, 8);
@@ -524,6 +543,8 @@ const compactBRL = (v) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)
 function CotacaoArrobaCard({ tipos, cotacao, onRetry }) {
   const tiposVisiveis = (tipos || []).filter((t) => t.exibir_dashboard).sort((a, b) => a.ordem - b.ordem);
   if (tiposVisiveis.length === 0) return null;
+  const destaque = tiposVisiveis.slice(0, 2);
+  const extras = tiposVisiveis.slice(2);
   return (
     <div className="rounded-2xl p-5" style={{ backgroundColor: COLORS.primary }}>
       <div className="flex items-center gap-1.5">
@@ -548,7 +569,7 @@ function CotacaoArrobaCard({ tipos, cotacao, onRetry }) {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-4 mt-3">
-            {tiposVisiveis.map((t) => {
+            {destaque.map((t) => {
               const valor = cotacao.payload?.[t.campo_api];
               return (
                 <div key={t.id}>
@@ -558,6 +579,23 @@ function CotacaoArrobaCard({ tipos, cotacao, onRetry }) {
               );
             })}
           </div>
+          {extras.length > 0 && (
+            <div className="mt-4 pt-3 border-t" style={{ borderColor: "rgba(255,255,255,0.15)" }}>
+              <div className="space-y-1.5">
+                {extras.map((t) => {
+                  const valor = cotacao.payload?.[t.campo_api];
+                  return (
+                    <div key={t.id} className="flex items-center justify-between text-sm">
+                      <span className="text-white opacity-70">{t.nome}</span>
+                      <span className="text-white font-medium">
+                        {valor != null ? formatBRL(valor) : "—"} <span className="opacity-50 font-normal">{t.unidade}</span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {cotacao.payload?.atualizado && (
             <p className="text-xs text-white opacity-50 mt-3">
               Atualizado {formatCotacaoHora(cotacao.payload.atualizado)} · Fonte: {COTACAO_FONTE}
@@ -604,8 +642,9 @@ function Dashboard({ data, onNavigate }) {
   const comprasValorPeriodo = comprasPeriodo.reduce((s, c) => s + Number(c.valor_total || 0), 0);
   const vendasValorPeriodo = vendasPeriodo.reduce((s, v) => s + Number(v.valor_total || 0), 0);
 
-  const serieTemporal = chartMode === "mensal" ? buildMonthlySeries(custos, 12) : buildYearlySeries(custos, 5);
-  const comparativoLotes = buildComparativoLotes(lotesAtivos, rateios);
+  const custosById = Object.fromEntries(custos.map((c) => [c.id, c]));
+  const serieTemporal = buildSerieTemporal(temFiltro ? custosPeriodo : custos, chartMode, temFiltro, dateFrom, dateTo);
+  const comparativoLotes = buildComparativoLotes(lotesAtivos, rateios, custosById, temFiltro, dateFrom, dateTo);
 
   return (
     <div className="space-y-5 pt-1">
@@ -649,7 +688,9 @@ function Dashboard({ data, onNavigate }) {
 
       <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
         <div className="flex items-center justify-between mb-1">
-          <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>Custos ao longo do tempo</p>
+          <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>
+            Custos ao longo do tempo{temFiltro ? " (período filtrado)" : ""}
+          </p>
           <div className="flex gap-1 flex-shrink-0">
             {[["mensal", "Mensal"], ["anual", "Anual"]].map(([val, label]) => (
               <button
@@ -676,7 +717,7 @@ function Dashboard({ data, onNavigate }) {
                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: COLORS.text }} />
                 <YAxis tick={{ fontSize: 11, fill: COLORS.text }} tickFormatter={compactBRL} width={40} />
                 <Tooltip formatter={(v) => [formatBRL(v), "Custo"]} />
-                <Bar dataKey="total" fill={COLORS.primary} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="total" fill={COLORS.primary} radius={[4, 4, 0, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -684,7 +725,9 @@ function Dashboard({ data, onNavigate }) {
       </div>
 
       <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
-        <p className="text-sm font-semibold mb-2" style={{ color: COLORS.textDark }}>Custo rateado por lote</p>
+        <p className="text-sm font-semibold mb-2" style={{ color: COLORS.textDark }}>
+          Custo rateado por lote{temFiltro ? " (período filtrado)" : ""}
+        </p>
         {comparativoLotes.length === 0 ? (
           <EmptyState text="Nenhum lote ativo para comparar." />
         ) : (
@@ -695,7 +738,7 @@ function Dashboard({ data, onNavigate }) {
                 <XAxis type="number" tick={{ fontSize: 11, fill: COLORS.text }} tickFormatter={compactBRL} />
                 <YAxis type="category" dataKey="nome" tick={{ fontSize: 11, fill: COLORS.text }} width={72} />
                 <Tooltip formatter={(v) => [formatBRL(v), "Custo rateado"]} />
-                <Bar dataKey="custo" fill={COLORS.primary} radius={[0, 4, 4, 0]} />
+                <Bar dataKey="custo" fill={COLORS.primary} radius={[0, 4, 4, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -1343,7 +1386,7 @@ function ConfiguracoesScreen({ configuracoes, piquetes, categorias, cotacoesTipo
       <div>
         <h2 className="text-sm font-semibold mb-2" style={{ color: COLORS.textDark }}>Cotação da arroba no Painel</h2>
         <p className="text-xs mb-3" style={{ color: COLORS.text }}>
-          Escolha quais tipos de gado aparecem no card de cotação do Painel. Valores vêm de uma API pública (CEPEA/Esalq via AgroDoc AI).
+          Escolha quais tipos de gado aparecem no card de cotação do Painel. Os 2 primeiros selecionados aparecem em destaque; os demais aparecem em uma tabela ao lado. Valores vêm de uma API pública (CEPEA/Esalq via AgroDoc AI).
         </p>
         {(cotacoesTipos || []).length === 0 ? (
           <EmptyState text="Nenhum tipo de cotação disponível." />
