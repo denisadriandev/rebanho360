@@ -44,6 +44,15 @@ async function supaUpdate(table, id, data) {
   if (!res.ok) throw new Error((await res.json())?.message || "Erro ao atualizar");
   return res.json();
 }
+async function supaUpdateWhere(table, column, value, data) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${column}=eq.${encodeURIComponent(value)}`, {
+    method: "PATCH",
+    headers: { ...headers, Prefer: "return=representation" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error((await res.json())?.message || "Erro ao atualizar registros relacionados");
+  return res.json();
+}
 async function supaDelete(table, id) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, { method: "DELETE", headers });
   if (!res.ok) throw new Error((await res.json())?.message || "Erro ao excluir");
@@ -202,6 +211,12 @@ const PIQUETE_FIELDS = [
 const CATEGORIA_FIELDS = [
   { name: "nome", label: "Nome da categoria", type: "text", required: true },
 ];
+const RENOMEAR_RETROATIVO_FIELD = {
+  name: "aplicar_retroativo",
+  label: "Aplicar retroativamente",
+  type: "checkbox",
+  checkboxLabel: "Atualizar também os lançamentos já cadastrados com o nome anterior (senão, o novo nome vale só para lançamentos futuros)",
+};
 
 function prepareValues(fields, values) {
   const out = {};
@@ -1394,31 +1409,76 @@ function ConfiguracoesScreen({ configuracoes, piquetes, categorias, categoriasDe
 
   const handleSavePiquete = async (values) => {
     const payload = prepareValues(PIQUETE_FIELDS, values);
-    if (piqueteForm?.id) await supaUpdate("piquetes", piqueteForm.id, payload);
-    else await supaInsert("piquetes", payload);
+    let msg = "Piquete cadastrado.";
+    if (piqueteForm?.id) {
+      const nomeAnterior = piqueteForm.nome;
+      await supaUpdate("piquetes", piqueteForm.id, payload);
+      if (payload.nome && payload.nome !== nomeAnterior) {
+        if (values.aplicar_retroativo) {
+          const atualizados = await supaUpdateWhere("lotes", "piquete", nomeAnterior, { piquete: payload.nome });
+          msg = `Piquete atualizado. ${atualizados.length} lote(s) já cadastrados foram atualizados para o novo nome.`;
+        } else {
+          msg = "Piquete atualizado. O novo nome vale só para lançamentos futuros.";
+        }
+      } else {
+        msg = "Piquete atualizado.";
+      }
+    } else {
+      await supaInsert("piquetes", payload);
+    }
     await reload();
     setPiqueteForm(null);
-    showToast(piqueteForm?.id ? "Piquete atualizado." : "Piquete cadastrado.");
+    showToast(msg);
   };
   const handleDeletePiquete = async (id) => { await supaDelete("piquetes", id); await reload(); showToast("Piquete excluído."); };
 
   const handleSaveCategoria = async (values) => {
     const payload = prepareValues(CATEGORIA_FIELDS, values);
-    if (categoriaForm?.id) await supaUpdate("categorias_gado", categoriaForm.id, payload);
-    else await supaInsert("categorias_gado", payload);
+    let msg = "Categoria cadastrada.";
+    if (categoriaForm?.id) {
+      const nomeAnterior = categoriaForm.nome;
+      await supaUpdate("categorias_gado", categoriaForm.id, payload);
+      if (payload.nome && payload.nome !== nomeAnterior) {
+        if (values.aplicar_retroativo) {
+          const atualizados = await supaUpdateWhere("lotes", "categoria", nomeAnterior, { categoria: payload.nome });
+          msg = `Categoria atualizada. ${atualizados.length} lote(s) já cadastrados foram atualizados para o novo nome.`;
+        } else {
+          msg = "Categoria atualizada. O novo nome vale só para lançamentos futuros.";
+        }
+      } else {
+        msg = "Categoria atualizada.";
+      }
+    } else {
+      await supaInsert("categorias_gado", payload);
+    }
     await reload();
     setCategoriaForm(null);
-    showToast(categoriaForm?.id ? "Categoria atualizada." : "Categoria cadastrada.");
+    showToast(msg);
   };
   const handleDeleteCategoria = async (id) => { await supaDelete("categorias_gado", id); await reload(); showToast("Categoria excluída."); };
 
   const handleSaveCategoriaDespesa = async (values) => {
     const payload = prepareValues(CATEGORIA_FIELDS, values);
-    if (categoriaDespesaForm?.id) await supaUpdate("categorias_despesa", categoriaDespesaForm.id, payload);
-    else await supaInsert("categorias_despesa", payload);
+    let msg = "Categoria de despesa cadastrada.";
+    if (categoriaDespesaForm?.id) {
+      const nomeAnterior = categoriaDespesaForm.nome;
+      await supaUpdate("categorias_despesa", categoriaDespesaForm.id, payload);
+      if (payload.nome && payload.nome !== nomeAnterior) {
+        if (values.aplicar_retroativo) {
+          const atualizados = await supaUpdateWhere("custos", "categoria", nomeAnterior, { categoria: payload.nome });
+          msg = `Categoria de despesa atualizada. ${atualizados.length} despesa(s) já lançadas foram atualizadas para o novo nome.`;
+        } else {
+          msg = "Categoria de despesa atualizada. O novo nome vale só para lançamentos futuros.";
+        }
+      } else {
+        msg = "Categoria de despesa atualizada.";
+      }
+    } else {
+      await supaInsert("categorias_despesa", payload);
+    }
     await reload();
     setCategoriaDespesaForm(null);
-    showToast(categoriaDespesaForm?.id ? "Categoria de despesa atualizada." : "Categoria de despesa cadastrada.");
+    showToast(msg);
   };
   const handleDeleteCategoriaDespesa = async (id) => { await supaDelete("categorias_despesa", id); await reload(); showToast("Categoria de despesa excluída."); };
 
@@ -1525,17 +1585,35 @@ function ConfiguracoesScreen({ configuracoes, piquetes, categorias, categoriasDe
       )}
       {piqueteForm && (
         <Modal title={piqueteForm.id ? "Editar piquete" : "Novo piquete"} onClose={() => setPiqueteForm(null)}>
-          <EntityForm fields={PIQUETE_FIELDS} initialValues={piqueteForm} onSubmit={handleSavePiquete} onCancel={() => setPiqueteForm(null)} submitLabel={piqueteForm.id ? "Salvar alterações" : "Cadastrar piquete"} />
+          <EntityForm
+            fields={piqueteForm.id ? [...PIQUETE_FIELDS, RENOMEAR_RETROATIVO_FIELD] : PIQUETE_FIELDS}
+            initialValues={{ ...piqueteForm, aplicar_retroativo: true }}
+            onSubmit={handleSavePiquete}
+            onCancel={() => setPiqueteForm(null)}
+            submitLabel={piqueteForm.id ? "Salvar alterações" : "Cadastrar piquete"}
+          />
         </Modal>
       )}
       {categoriaForm && (
         <Modal title={categoriaForm.id ? "Editar categoria" : "Nova categoria"} onClose={() => setCategoriaForm(null)}>
-          <EntityForm fields={CATEGORIA_FIELDS} initialValues={categoriaForm} onSubmit={handleSaveCategoria} onCancel={() => setCategoriaForm(null)} submitLabel={categoriaForm.id ? "Salvar alterações" : "Cadastrar categoria"} />
+          <EntityForm
+            fields={categoriaForm.id ? [...CATEGORIA_FIELDS, RENOMEAR_RETROATIVO_FIELD] : CATEGORIA_FIELDS}
+            initialValues={{ ...categoriaForm, aplicar_retroativo: true }}
+            onSubmit={handleSaveCategoria}
+            onCancel={() => setCategoriaForm(null)}
+            submitLabel={categoriaForm.id ? "Salvar alterações" : "Cadastrar categoria"}
+          />
         </Modal>
       )}
       {categoriaDespesaForm && (
         <Modal title={categoriaDespesaForm.id ? "Editar categoria" : "Nova categoria"} onClose={() => setCategoriaDespesaForm(null)}>
-          <EntityForm fields={CATEGORIA_FIELDS} initialValues={categoriaDespesaForm} onSubmit={handleSaveCategoriaDespesa} onCancel={() => setCategoriaDespesaForm(null)} submitLabel={categoriaDespesaForm.id ? "Salvar alterações" : "Cadastrar categoria"} />
+          <EntityForm
+            fields={categoriaDespesaForm.id ? [...CATEGORIA_FIELDS, RENOMEAR_RETROATIVO_FIELD] : CATEGORIA_FIELDS}
+            initialValues={{ ...categoriaDespesaForm, aplicar_retroativo: true }}
+            onSubmit={handleSaveCategoriaDespesa}
+            onCancel={() => setCategoriaDespesaForm(null)}
+            submitLabel={categoriaDespesaForm.id ? "Salvar alterações" : "Cadastrar categoria"}
+          />
         </Modal>
       )}
     </div>
