@@ -110,14 +110,12 @@ const ORIGEM_OPTS = [["compra", "Compra"], ["nascimento", "Nascimento"], ["trans
 const STATUS_OPTS = [["ativo", "Ativo"], ["vendido", "Vendido"], ["finalizado", "Finalizado"]];
 const TIPO_EVENTO_OPTS = [["vacinacao", "Vacinação"], ["medicamento", "Medicamento"], ["manejo", "Manejo"], ["movimentacao", "Movimentação"], ["morte", "Morte"], ["outro", "Outro"]];
 const TIPO_VENDA_OPTS = [["parcial", "Parcial"], ["total", "Total"]];
-const CATEGORIA_CUSTO_OPTS = [["alimentacao", "Alimentação"], ["sanidade", "Sanidade"], ["mao_de_obra", "Mão de obra"], ["infraestrutura", "Infraestrutura"], ["outro", "Outro"]];
 const METODO_RATEIO_OPTS = [["proporcional_cabecas", "Proporcional a cabeças"], ["proporcional_peso", "Proporcional a peso"], ["manual", "Manual"]];
 
 const STATUS_LABELS = { ativo: "Ativo", vendido: "Vendido", finalizado: "Finalizado" };
 const ORIGEM_LABELS = { compra: "Compra", nascimento: "Nascimento", transferencia: "Transferência" };
 const TIPO_EVENTO_LABELS = { vacinacao: "Vacinação", medicamento: "Medicamento", manejo: "Manejo", movimentacao: "Movimentação", morte: "Morte", outro: "Outro" };
 const TIPO_VENDA_LABELS = { parcial: "Parcial", total: "Total" };
-const CATEGORIA_CUSTO_LABELS = { alimentacao: "Alimentação", sanidade: "Sanidade", mao_de_obra: "Mão de obra", infraestrutura: "Infraestrutura", outro: "Outro" };
 const METODO_RATEIO_LABELS = { proporcional_cabecas: "Proporcional a cabeças", proporcional_peso: "Proporcional a peso", manual: "Manual" };
 
 // =====================================================================
@@ -151,7 +149,7 @@ const EVENTO_FIELDS = [
   { name: "tipo_evento", label: "Tipo de evento", type: "select", options: TIPO_EVENTO_OPTS, required: true },
   { name: "data_evento", label: "Data do evento", type: "date", required: true },
   { name: "quantidade_afetada", label: "Cabeças afetadas", type: "number", step: "1" },
-  { name: "custo", label: "Custo (R$)", type: "number" },
+  { name: "custo", label: "Despesa (R$)", type: "number" },
   { name: "descricao", label: "Descrição", type: "textarea" },
   { name: "retroativo", label: "Lançamento retroativo", type: "checkbox", checkboxLabel: "Sim, esse evento aconteceu antes de hoje" },
 ];
@@ -174,16 +172,27 @@ const VENDA_FIELDS = [
   { name: "comprador", label: "Comprador", type: "text" },
   { name: "observacoes", label: "Observações", type: "textarea" },
 ];
-const CUSTO_FIELDS = [
-  { name: "categoria", label: "Categoria", type: "select", options: CATEGORIA_CUSTO_OPTS, required: true },
-  { name: "descricao", label: "Descrição", type: "text", required: true },
-  { name: "data_custo", label: "Data do custo", type: "date", required: true },
-  { name: "valor_total", label: "Valor total (R$)", type: "number", required: true },
-];
+function despesaFields(categoriasDespesa, lotesAtivos) {
+  const categoriaOpts = (categoriasDespesa || []).map((c) => c.nome);
+  return [
+    { name: "categoria", label: "Categoria", type: "select", options: categoriaOpts, required: true },
+    { name: "descricao", label: "Descrição", type: "text", required: true },
+    { name: "data_custo", label: "Data da despesa", type: "date", required: true },
+    { name: "valor_total", label: "Valor total (R$)", type: "number", required: true },
+    { name: "metodo_rateio", label: "Método de rateio", type: "select", options: METODO_RATEIO_OPTS, required: true },
+    {
+      name: "lotes_rateio_ids",
+      label: "Ratear entre",
+      type: "lotes",
+      options: lotesAtivos || [],
+      hint: "Deixe todos desmarcados para ratear entre todos os lotes ativos.",
+    },
+  ];
+}
 const CONFIGURACOES_FIELDS = [
   { name: "nome_fazenda", label: "Nome da fazenda", type: "text", required: true },
   { name: "proprietario", label: "Proprietário", type: "text" },
-  { name: "metodo_rateio_padrao", label: "Método de rateio padrão para novos custos", type: "select", options: METODO_RATEIO_OPTS, required: true },
+  { name: "metodo_rateio_padrao", label: "Método de rateio padrão para novas despesas", type: "select", options: METODO_RATEIO_OPTS, required: true },
 ];
 const PIQUETE_FIELDS = [
   { name: "nome", label: "Nome do piquete", type: "text", required: true },
@@ -200,6 +209,7 @@ function prepareValues(fields, values) {
     const v = values[f.name];
     if (f.type === "number") out[f.name] = v === "" || v === undefined || v === null ? null : Number(v);
     else if (f.type === "checkbox") out[f.name] = !!v;
+    else if (f.type === "lotes") out[f.name] = Array.isArray(v) && v.length ? v : null;
     else out[f.name] = v === "" || v === undefined ? null : v;
   });
   return out;
@@ -309,7 +319,36 @@ function EntityForm({ fields, initialValues, onSubmit, onCancel, submitLabel = "
               {f.label}{f.required ? " *" : ""}
             </label>
           )}
-          {f.type === "select" ? (
+          {f.hint && (
+            <p className="text-xs mb-1.5" style={{ color: COLORS.text }}>{f.hint}</p>
+          )}
+          {f.type === "lotes" ? (
+            f.options.length === 0 ? (
+              <p className="text-sm" style={{ color: COLORS.text }}>Nenhum lote ativo disponível.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-48 overflow-y-auto rounded-lg border p-2.5" style={{ borderColor: COLORS.border }}>
+                {f.options.map((lote) => {
+                  const selecionados = values[f.name] || [];
+                  const marcado = selecionados.includes(lote.id);
+                  return (
+                    <label key={lote.id} className="flex items-center gap-2 text-sm py-0.5" style={{ color: COLORS.textDark }}>
+                      <input
+                        type="checkbox"
+                        checked={marcado}
+                        onChange={(e) =>
+                          setField(
+                            f.name,
+                            e.target.checked ? [...selecionados, lote.id] : selecionados.filter((id) => id !== lote.id)
+                          )
+                        }
+                      />
+                      {lote.identificador}
+                    </label>
+                  );
+                })}
+              </div>
+            )
+          ) : f.type === "select" ? (
             <select
               required={f.required}
               value={values[f.name] ?? ""}
@@ -383,7 +422,7 @@ function ListSection({ items, emptyText, addLabel, onAdd, renderItem }) {
   );
 }
 
-function ItemCard({ title, subtitle, icon: Icon, onDelete }) {
+function ItemCard({ title, subtitle, icon: Icon, onEdit, onDelete }) {
   return (
     <div className="flex items-center justify-between rounded-xl border p-3.5" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
       <div className="flex items-center gap-3 min-w-0">
@@ -395,9 +434,16 @@ function ItemCard({ title, subtitle, icon: Icon, onDelete }) {
           <p className="text-xs mt-0.5 truncate" style={{ color: COLORS.text }}>{subtitle}</p>
         </div>
       </div>
-      <button onClick={onDelete} aria-label="Excluir" className="p-1.5 flex-shrink-0">
-        <Trash2 size={16} color={COLORS.text} />
-      </button>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {onEdit && (
+          <button onClick={onEdit} aria-label="Editar" className="p-1.5">
+            <Pencil size={16} color={COLORS.text} />
+          </button>
+        )}
+        <button onClick={onDelete} aria-label="Excluir" className="p-1.5">
+          <Trash2 size={16} color={COLORS.text} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -456,7 +502,7 @@ function BottomNav({ tab, onChange }) {
   const items = [
     { id: "dashboard", label: "Painel", icon: Home },
     { id: "lotes", label: "Lotes", icon: Layers },
-    { id: "custos", label: "Custos", icon: Wallet },
+    { id: "custos", label: "Despesas", icon: Wallet },
     { id: "configuracoes", label: "Config.", icon: Settings },
   ];
   return (
@@ -666,11 +712,11 @@ function Dashboard({ data, onNavigate }) {
         <KpiCard label="Lotes ativos" value={lotesAtivos.length} />
         <KpiCard label="Cabeças no rebanho" value={totalCabecas.toLocaleString("pt-BR")} />
         <KpiCard label="Peso médio geral" value={`${pesoPonderado.toFixed(0)} kg`} />
-        <KpiCard label="Custos lançados" value={custos.length} />
+        <KpiCard label="Despesas lançadas" value={custos.length} />
       </div>
 
       <div className="rounded-2xl p-5" style={{ backgroundColor: COLORS.primary }}>
-        <p className="text-sm text-white opacity-80">Custo do rebanho este mês</p>
+        <p className="text-sm text-white opacity-80">Despesa do rebanho este mês</p>
         <p className="text-3xl font-bold text-white mt-1">{formatBRL(custoMes)}</p>
         <div className="flex items-center gap-1.5 mt-2">
           <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: COLORS.accent }} />
@@ -684,7 +730,7 @@ function Dashboard({ data, onNavigate }) {
         </div>
         <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} onClear={() => { setDateFrom(""); setDateTo(""); }} />
         <div className="grid grid-cols-2 gap-3 mt-3">
-          <KpiCard label={temFiltro ? "Custos no período" : "Custos (total)"} value={formatBRL(custoPeriodoTotal)} />
+          <KpiCard label={temFiltro ? "Despesas no período" : "Despesas (total)"} value={formatBRL(custoPeriodoTotal)} />
           <KpiCard label={temFiltro ? "Custo/cabeça no período" : "Custo/cabeça (total)"} value={formatBRL(custoPorCabecaPeriodo)} />
           <KpiCard label={temFiltro ? "Compras no período" : "Compras (total)"} value={`${comprasPeriodo.length} · ${formatBRL(comprasValorPeriodo)}`} />
           <KpiCard label={temFiltro ? "Vendas no período" : "Vendas (total)"} value={`${vendasPeriodo.length} · ${formatBRL(vendasValorPeriodo)}`} />
@@ -694,7 +740,7 @@ function Dashboard({ data, onNavigate }) {
       <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
         <div className="flex items-center justify-between mb-1">
           <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>
-            Custos ao longo do tempo{temFiltro ? " (período filtrado)" : ""}
+            Despesas ao longo do tempo{temFiltro ? " (período filtrado)" : ""}
           </p>
           <div className="flex gap-1 flex-shrink-0">
             {[["mensal", "Mensal"], ["anual", "Anual"]].map(([val, label]) => (
@@ -713,7 +759,7 @@ function Dashboard({ data, onNavigate }) {
           </div>
         </div>
         {custos.length === 0 ? (
-          <EmptyState text="Nenhum custo lançado ainda." />
+          <EmptyState text="Nenhuma despesa lançada ainda." />
         ) : (
           <div style={{ width: "100%", height: 200 }}>
             <ResponsiveContainer>
@@ -721,7 +767,7 @@ function Dashboard({ data, onNavigate }) {
                 <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: COLORS.text }} />
                 <YAxis tick={{ fontSize: 11, fill: COLORS.text }} tickFormatter={compactBRL} width={40} />
-                <Tooltip formatter={(v) => [formatBRL(v), "Custo"]} />
+                <Tooltip formatter={(v) => [formatBRL(v), "Despesa"]} />
                 <Bar dataKey="total" fill={COLORS.primary} radius={[4, 4, 0, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
@@ -732,7 +778,7 @@ function Dashboard({ data, onNavigate }) {
       <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
         <div className="flex items-center justify-between mb-2">
           <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>
-            Custo rateado por lote{temFiltro ? " (período filtrado)" : ""}
+            Despesa rateada por lote{temFiltro ? " (período filtrado)" : ""}
           </p>
           <div className="flex gap-1 flex-shrink-0">
             {[["total", "Total"], ["porCabeca", "Por cabeça"]].map(([val, label]) => (
@@ -759,7 +805,7 @@ function Dashboard({ data, onNavigate }) {
                 <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 11, fill: COLORS.text }} tickFormatter={compactBRL} />
                 <YAxis type="category" dataKey="nome" tick={{ fontSize: 11, fill: COLORS.text }} width={72} />
-                <Tooltip formatter={(v) => [formatBRL(v), comparativoMetrica === "porCabeca" ? "Custo por cabeça" : "Custo total rateado"]} />
+                <Tooltip formatter={(v) => [formatBRL(v), comparativoMetrica === "porCabeca" ? "Custo por cabeça" : "Despesa total rateada"]} />
                 <Bar dataKey="valor" fill={COLORS.primary} radius={[0, 4, 4, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
@@ -1212,37 +1258,42 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
 }
 
 // =====================================================================
-// Custos e rateio
+// Despesas e rateio
 // =====================================================================
-function CustosScreen({ custos, rateios, metodoRateioPadrao, reload, showToast }) {
+function DespesasScreen({ custos, rateios, lotes, categoriasDespesa, metodoRateioPadrao, reload, showToast }) {
   const [showForm, setShowForm] = useState(false);
   const [selected, setSelected] = useState(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const custosFiltrados = custos.filter((c) => inDateRange(c.data_custo, dateFrom, dateTo));
+  const lotesAtivos = lotes.filter((l) => l.status === "ativo");
+  const fields = despesaFields(categoriasDespesa, lotesAtivos);
 
   const handleCreate = async (values) => {
-    const payload = prepareValues(CUSTO_FIELDS, values);
-    payload.metodo_rateio = metodoRateioPadrao || "proporcional_cabecas";
+    const payload = prepareValues(fields, values);
     await supaInsert("custos", payload);
     await reload();
     setShowForm(false);
-    showToast("Custo lançado e rateado automaticamente entre os lotes ativos.");
+    showToast(
+      payload.lotes_rateio_ids
+        ? "Despesa lançada e rateada entre os lotes selecionados."
+        : "Despesa lançada e rateada automaticamente entre todos os lotes ativos."
+    );
   };
-  const handleDelete = async (id) => { await supaDelete("custos", id); await reload(); showToast("Custo excluído."); setSelected(null); };
+  const handleDelete = async (id) => { await supaDelete("custos", id); await reload(); showToast("Despesa excluída."); setSelected(null); };
 
   const totalGeral = custosFiltrados.reduce((s, c) => s + Number(c.valor_total || 0), 0);
 
   return (
     <div className="space-y-4 pt-1">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold" style={{ color: COLORS.textDark }}>Custos</h1>
+        <h1 className="text-xl font-bold" style={{ color: COLORS.textDark }}>Despesas</h1>
         <button
           onClick={() => setShowForm(true)}
           className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-white"
           style={{ backgroundColor: COLORS.primary }}
         >
-          <Plus size={16} /> Novo custo
+          <Plus size={16} /> Nova despesa
         </button>
       </div>
 
@@ -1254,7 +1305,7 @@ function CustosScreen({ custos, rateios, metodoRateioPadrao, reload, showToast }
       <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} onClear={() => { setDateFrom(""); setDateTo(""); }} />
 
       {custosFiltrados.length === 0 ? (
-        <EmptyState text="Nenhum custo encontrado para o período." />
+        <EmptyState text="Nenhuma despesa encontrada para o período." />
       ) : (
         <div className="space-y-2">
           {custosFiltrados.map((c) => (
@@ -1266,7 +1317,7 @@ function CustosScreen({ custos, rateios, metodoRateioPadrao, reload, showToast }
             >
               <div className="min-w-0">
                 <p className="text-sm font-medium truncate" style={{ color: COLORS.textDark }}>{c.descricao}</p>
-                <p className="text-xs mt-0.5" style={{ color: COLORS.text }}>{CATEGORIA_CUSTO_LABELS[c.categoria]}, {formatDate(c.data_custo)}</p>
+                <p className="text-xs mt-0.5" style={{ color: COLORS.text }}>{c.categoria}, {formatDate(c.data_custo)}</p>
               </div>
               <p className="text-sm font-semibold flex-shrink-0" style={{ color: COLORS.textDark }}>{formatBRL(c.valor_total)}</p>
             </button>
@@ -1275,20 +1326,25 @@ function CustosScreen({ custos, rateios, metodoRateioPadrao, reload, showToast }
       )}
 
       {showForm && (
-        <Modal title="Novo custo" onClose={() => setShowForm(false)}>
-          <EntityForm fields={CUSTO_FIELDS} initialValues={{ data_custo: todayISO() }} onSubmit={handleCreate} onCancel={() => setShowForm(false)} submitLabel="Lançar custo" />
-          <p className="text-xs mt-3" style={{ color: COLORS.text }}>
-            O valor é rateado automaticamente entre os lotes ativos, usando o método padrão definido em Configurações ({METODO_RATEIO_LABELS[metodoRateioPadrao] || METODO_RATEIO_LABELS.proporcional_cabecas}).
-          </p>
+        <Modal title="Nova despesa" onClose={() => setShowForm(false)}>
+          <EntityForm
+            fields={fields}
+            initialValues={{ data_custo: todayISO(), metodo_rateio: metodoRateioPadrao || "proporcional_cabecas", lotes_rateio_ids: [] }}
+            onSubmit={handleCreate}
+            onCancel={() => setShowForm(false)}
+            submitLabel="Lançar despesa"
+          />
         </Modal>
       )}
 
       {selected && (
-        <Modal title="Detalhe do custo" onClose={() => setSelected(null)}>
+        <Modal title="Detalhe da despesa" onClose={() => setSelected(null)}>
           <div className="space-y-4">
             <div>
               <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>{selected.descricao}</p>
-              <p className="text-xs mt-0.5" style={{ color: COLORS.text }}>{CATEGORIA_CUSTO_LABELS[selected.categoria]}, {formatDate(selected.data_custo)}</p>
+              <p className="text-xs mt-0.5" style={{ color: COLORS.text }}>
+                {selected.categoria}, {formatDate(selected.data_custo)} · Rateio {METODO_RATEIO_LABELS[selected.metodo_rateio] || selected.metodo_rateio}
+              </p>
               <p className="text-lg font-bold mt-2" style={{ color: COLORS.textDark }}>{formatBRL(selected.valor_total)}</p>
             </div>
             <div>
@@ -1301,12 +1357,12 @@ function CustosScreen({ custos, rateios, metodoRateioPadrao, reload, showToast }
                   </div>
                 ))}
                 {rateios.filter((r) => r.custo_id === selected.id).length === 0 && (
-                  <p className="text-sm" style={{ color: COLORS.text }}>Nenhum lote ativo para ratear na data deste custo.</p>
+                  <p className="text-sm" style={{ color: COLORS.text }}>Nenhum lote elegível para ratear esta despesa.</p>
                 )}
               </div>
             </div>
             <button onClick={() => handleDelete(selected.id)} className="w-full flex items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-medium border" style={{ borderColor: COLORS.border, color: COLORS.danger }}>
-              <Trash2 size={14} /> Excluir custo
+              <Trash2 size={14} /> Excluir despesa
             </button>
           </div>
         </Modal>
@@ -1318,10 +1374,11 @@ function CustosScreen({ custos, rateios, metodoRateioPadrao, reload, showToast }
 // =====================================================================
 // Configurações
 // =====================================================================
-function ConfiguracoesScreen({ configuracoes, piquetes, categorias, cotacoesTipos, reload, showToast }) {
+function ConfiguracoesScreen({ configuracoes, piquetes, categorias, categoriasDespesa, cotacoesTipos, reload, showToast }) {
   const [showEditFazenda, setShowEditFazenda] = useState(false);
-  const [showPiqueteForm, setShowPiqueteForm] = useState(false);
-  const [showCategoriaForm, setShowCategoriaForm] = useState(false);
+  const [piqueteForm, setPiqueteForm] = useState(null);
+  const [categoriaForm, setCategoriaForm] = useState(null);
+  const [categoriaDespesaForm, setCategoriaDespesaForm] = useState(null);
 
   const handleToggleCotacao = async (tipo, exibir) => {
     await supaUpdate("cotacoes_tipos", tipo.id, { exibir_dashboard: exibir });
@@ -1335,21 +1392,35 @@ function ConfiguracoesScreen({ configuracoes, piquetes, categorias, cotacoesTipo
     showToast("Configurações da fazenda atualizadas.");
   };
 
-  const handleAddPiquete = async (values) => {
-    await supaInsert("piquetes", prepareValues(PIQUETE_FIELDS, values));
+  const handleSavePiquete = async (values) => {
+    const payload = prepareValues(PIQUETE_FIELDS, values);
+    if (piqueteForm?.id) await supaUpdate("piquetes", piqueteForm.id, payload);
+    else await supaInsert("piquetes", payload);
     await reload();
-    setShowPiqueteForm(false);
-    showToast("Piquete cadastrado.");
+    setPiqueteForm(null);
+    showToast(piqueteForm?.id ? "Piquete atualizado." : "Piquete cadastrado.");
   };
   const handleDeletePiquete = async (id) => { await supaDelete("piquetes", id); await reload(); showToast("Piquete excluído."); };
 
-  const handleAddCategoria = async (values) => {
-    await supaInsert("categorias_gado", prepareValues(CATEGORIA_FIELDS, values));
+  const handleSaveCategoria = async (values) => {
+    const payload = prepareValues(CATEGORIA_FIELDS, values);
+    if (categoriaForm?.id) await supaUpdate("categorias_gado", categoriaForm.id, payload);
+    else await supaInsert("categorias_gado", payload);
     await reload();
-    setShowCategoriaForm(false);
-    showToast("Categoria cadastrada.");
+    setCategoriaForm(null);
+    showToast(categoriaForm?.id ? "Categoria atualizada." : "Categoria cadastrada.");
   };
   const handleDeleteCategoria = async (id) => { await supaDelete("categorias_gado", id); await reload(); showToast("Categoria excluída."); };
+
+  const handleSaveCategoriaDespesa = async (values) => {
+    const payload = prepareValues(CATEGORIA_FIELDS, values);
+    if (categoriaDespesaForm?.id) await supaUpdate("categorias_despesa", categoriaDespesaForm.id, payload);
+    else await supaInsert("categorias_despesa", payload);
+    await reload();
+    setCategoriaDespesaForm(null);
+    showToast(categoriaDespesaForm?.id ? "Categoria de despesa atualizada." : "Categoria de despesa cadastrada.");
+  };
+  const handleDeleteCategoriaDespesa = async (id) => { await supaDelete("categorias_despesa", id); await reload(); showToast("Categoria de despesa excluída."); };
 
   return (
     <div className="space-y-5 pt-1">
@@ -1379,13 +1450,14 @@ function ConfiguracoesScreen({ configuracoes, piquetes, categorias, cotacoesTipo
           items={piquetes}
           emptyText="Nenhum piquete cadastrado ainda."
           addLabel="Novo piquete"
-          onAdd={() => setShowPiqueteForm(true)}
+          onAdd={() => setPiqueteForm({})}
           renderItem={(p) => (
             <ItemCard
               key={p.id}
               title={p.nome}
               subtitle={p.capacidade_cabecas ? `Capacidade: ${p.capacidade_cabecas} cabeças` : "Sem capacidade definida"}
               icon={MapPin}
+              onEdit={() => setPiqueteForm(p)}
               onDelete={() => handleDeletePiquete(p.id)}
             />
           )}
@@ -1398,9 +1470,22 @@ function ConfiguracoesScreen({ configuracoes, piquetes, categorias, cotacoesTipo
           items={categorias}
           emptyText="Nenhuma categoria cadastrada ainda."
           addLabel="Nova categoria"
-          onAdd={() => setShowCategoriaForm(true)}
+          onAdd={() => setCategoriaForm({})}
           renderItem={(c) => (
-            <ItemCard key={c.id} title={c.nome} subtitle="Categoria de gado" icon={Tag} onDelete={() => handleDeleteCategoria(c.id)} />
+            <ItemCard key={c.id} title={c.nome} subtitle="Categoria de gado" icon={Tag} onEdit={() => setCategoriaForm(c)} onDelete={() => handleDeleteCategoria(c.id)} />
+          )}
+        />
+      </div>
+
+      <div>
+        <h2 className="text-sm font-semibold mb-2" style={{ color: COLORS.textDark }}>Categorias de despesa</h2>
+        <ListSection
+          items={categoriasDespesa || []}
+          emptyText="Nenhuma categoria de despesa cadastrada ainda."
+          addLabel="Nova categoria"
+          onAdd={() => setCategoriaDespesaForm({})}
+          renderItem={(c) => (
+            <ItemCard key={c.id} title={c.nome} subtitle="Categoria de despesa" icon={Wallet} onEdit={() => setCategoriaDespesaForm(c)} onDelete={() => handleDeleteCategoriaDespesa(c.id)} />
           )}
         />
       </div>
@@ -1438,14 +1523,19 @@ function ConfiguracoesScreen({ configuracoes, piquetes, categorias, cotacoesTipo
           />
         </Modal>
       )}
-      {showPiqueteForm && (
-        <Modal title="Novo piquete" onClose={() => setShowPiqueteForm(false)}>
-          <EntityForm fields={PIQUETE_FIELDS} initialValues={{}} onSubmit={handleAddPiquete} onCancel={() => setShowPiqueteForm(false)} submitLabel="Cadastrar piquete" />
+      {piqueteForm && (
+        <Modal title={piqueteForm.id ? "Editar piquete" : "Novo piquete"} onClose={() => setPiqueteForm(null)}>
+          <EntityForm fields={PIQUETE_FIELDS} initialValues={piqueteForm} onSubmit={handleSavePiquete} onCancel={() => setPiqueteForm(null)} submitLabel={piqueteForm.id ? "Salvar alterações" : "Cadastrar piquete"} />
         </Modal>
       )}
-      {showCategoriaForm && (
-        <Modal title="Nova categoria" onClose={() => setShowCategoriaForm(false)}>
-          <EntityForm fields={CATEGORIA_FIELDS} initialValues={{}} onSubmit={handleAddCategoria} onCancel={() => setShowCategoriaForm(false)} submitLabel="Cadastrar categoria" />
+      {categoriaForm && (
+        <Modal title={categoriaForm.id ? "Editar categoria" : "Nova categoria"} onClose={() => setCategoriaForm(null)}>
+          <EntityForm fields={CATEGORIA_FIELDS} initialValues={categoriaForm} onSubmit={handleSaveCategoria} onCancel={() => setCategoriaForm(null)} submitLabel={categoriaForm.id ? "Salvar alterações" : "Cadastrar categoria"} />
+        </Modal>
+      )}
+      {categoriaDespesaForm && (
+        <Modal title={categoriaDespesaForm.id ? "Editar categoria" : "Nova categoria"} onClose={() => setCategoriaDespesaForm(null)}>
+          <EntityForm fields={CATEGORIA_FIELDS} initialValues={categoriaDespesaForm} onSubmit={handleSaveCategoriaDespesa} onCancel={() => setCategoriaDespesaForm(null)} submitLabel={categoriaDespesaForm.id ? "Salvar alterações" : "Cadastrar categoria"} />
         </Modal>
       )}
     </div>
@@ -1493,7 +1583,7 @@ class ErrorBoundary extends Component {
 function Rebanho360App() {
   const [tab, setTab] = useState("dashboard");
   const [selectedLoteId, setSelectedLoteId] = useState(null);
-  const [data, setData] = useState({ lotes: [], pesagens: [], eventos: [], compras: [], vendas: [], custos: [], rateios: [], configuracoes: null, piquetes: [], categorias: [], cotacoesTipos: [] });
+  const [data, setData] = useState({ lotes: [], pesagens: [], eventos: [], compras: [], vendas: [], custos: [], rateios: [], configuracoes: null, piquetes: [], categorias: [], categoriasDespesa: [], cotacoesTipos: [] });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
@@ -1506,7 +1596,7 @@ function Rebanho360App() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoesRows, piquetes, categorias, cotacoesTipos] = await Promise.all([
+      const [lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoesRows, piquetes, categorias, categoriasDespesa, cotacoesTipos] = await Promise.all([
         supaGet("lotes?select=*&order=data_entrada.desc"),
         supaGet("pesagens?select=*&order=data_pesagem.desc"),
         supaGet("eventos?select=*&order=data_evento.desc"),
@@ -1517,9 +1607,10 @@ function Rebanho360App() {
         supaGet("configuracoes?select=*&limit=1"),
         supaGet("piquetes?select=*&order=nome.asc"),
         supaGet("categorias_gado?select=*&order=ordem.asc,nome.asc"),
+        supaGet("categorias_despesa?select=*&order=ordem.asc,nome.asc"),
         supaGet("cotacoes_tipos?select=*&order=ordem.asc"),
       ]);
-      setData({ lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoes: configuracoesRows[0] || null, piquetes, categorias, cotacoesTipos });
+      setData({ lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoes: configuracoesRows[0] || null, piquetes, categorias, categoriasDespesa, cotacoesTipos });
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -1555,9 +1646,25 @@ function Rebanho360App() {
         ) : tab === "lotes" ? (
           <LotesList lotes={data.lotes} categorias={data.categorias} piquetes={data.piquetes} onSelect={(id) => navigate("lotes", id)} reload={loadAll} showToast={showToast} />
         ) : tab === "custos" ? (
-          <CustosScreen custos={data.custos} rateios={data.rateios} metodoRateioPadrao={data.configuracoes?.metodo_rateio_padrao} reload={loadAll} showToast={showToast} />
+          <DespesasScreen
+            custos={data.custos}
+            rateios={data.rateios}
+            lotes={data.lotes}
+            categoriasDespesa={data.categoriasDespesa}
+            metodoRateioPadrao={data.configuracoes?.metodo_rateio_padrao}
+            reload={loadAll}
+            showToast={showToast}
+          />
         ) : (
-          <ConfiguracoesScreen configuracoes={data.configuracoes} piquetes={data.piquetes} categorias={data.categorias} cotacoesTipos={data.cotacoesTipos} reload={loadAll} showToast={showToast} />
+          <ConfiguracoesScreen
+            configuracoes={data.configuracoes}
+            piquetes={data.piquetes}
+            categorias={data.categorias}
+            categoriasDespesa={data.categoriasDespesa}
+            cotacoesTipos={data.cotacoesTipos}
+            reload={loadAll}
+            showToast={showToast}
+          />
         )}
       </main>
 
