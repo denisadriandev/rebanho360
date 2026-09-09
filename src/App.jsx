@@ -4,7 +4,7 @@ import {
 } from "recharts";
 import {
   Home, Layers, Wallet, Plus, X, Trash2, Pencil, ArrowLeft, Loader2,
-  Scale, Syringe, ShoppingCart, Tag, ChevronRight,
+  Scale, Syringe, ShoppingCart, Tag, ChevronRight, Settings, MapPin,
 } from "lucide-react";
 
 // =====================================================================
@@ -85,28 +85,36 @@ const STATUS_OPTS = [["ativo", "Ativo"], ["vendido", "Vendido"], ["finalizado", 
 const TIPO_EVENTO_OPTS = [["vacinacao", "Vacinação"], ["medicamento", "Medicamento"], ["manejo", "Manejo"], ["movimentacao", "Movimentação"], ["morte", "Morte"], ["outro", "Outro"]];
 const TIPO_VENDA_OPTS = [["parcial", "Parcial"], ["total", "Total"]];
 const CATEGORIA_CUSTO_OPTS = [["alimentacao", "Alimentação"], ["sanidade", "Sanidade"], ["mao_de_obra", "Mão de obra"], ["infraestrutura", "Infraestrutura"], ["outro", "Outro"]];
+const METODO_RATEIO_OPTS = [["proporcional_cabecas", "Proporcional a cabeças"], ["proporcional_peso", "Proporcional a peso"], ["manual", "Manual"]];
 
 const STATUS_LABELS = { ativo: "Ativo", vendido: "Vendido", finalizado: "Finalizado" };
 const ORIGEM_LABELS = { compra: "Compra", nascimento: "Nascimento", transferencia: "Transferência" };
 const TIPO_EVENTO_LABELS = { vacinacao: "Vacinação", medicamento: "Medicamento", manejo: "Manejo", movimentacao: "Movimentação", morte: "Morte", outro: "Outro" };
 const TIPO_VENDA_LABELS = { parcial: "Parcial", total: "Total" };
 const CATEGORIA_CUSTO_LABELS = { alimentacao: "Alimentação", sanidade: "Sanidade", mao_de_obra: "Mão de obra", infraestrutura: "Infraestrutura", outro: "Outro" };
+const METODO_RATEIO_LABELS = { proporcional_cabecas: "Proporcional a cabeças", proporcional_peso: "Proporcional a peso", manual: "Manual" };
 
 // =====================================================================
 // Configuração de campos por entidade (usada pelo formulário genérico)
 // =====================================================================
-const LOTE_FIELDS = [
-  { name: "identificador", label: "Identificador", type: "text", required: true },
-  { name: "categoria", label: "Categoria", type: "select", options: CATEGORIA_OPTS, required: true },
-  { name: "quantidade_inicial", label: "Quantidade inicial (cabeças)", type: "number", step: "1", required: true },
-  { name: "quantidade_atual", label: "Quantidade atual (cabeças)", type: "number", step: "1", required: true },
-  { name: "peso_medio_atual", label: "Peso médio atual (kg)", type: "number" },
-  { name: "data_entrada", label: "Data de entrada", type: "date", required: true },
-  { name: "origem", label: "Origem", type: "select", options: ORIGEM_OPTS, required: true },
-  { name: "status", label: "Status", type: "select", options: STATUS_OPTS, required: true },
-  { name: "piquete", label: "Piquete / pasto", type: "text" },
-  { name: "observacoes", label: "Observações", type: "textarea" },
-];
+function loteFields(categorias, piquetes) {
+  const categoriaOpts = categorias && categorias.length ? categorias.map((c) => c.nome) : CATEGORIA_OPTS;
+  const piqueteOpts = (piquetes || []).map((p) => p.nome);
+  return [
+    { name: "identificador", label: "Identificador", type: "text", required: true },
+    { name: "categoria", label: "Categoria", type: "select", options: categoriaOpts, required: true },
+    { name: "quantidade_inicial", label: "Quantidade inicial (cabeças)", type: "number", step: "1", required: true },
+    { name: "quantidade_atual", label: "Quantidade atual (cabeças)", type: "number", step: "1", required: true },
+    { name: "peso_medio_atual", label: "Peso médio atual (kg)", type: "number" },
+    { name: "data_entrada", label: "Data de entrada", type: "date", required: true },
+    { name: "origem", label: "Origem", type: "select", options: ORIGEM_OPTS, required: true },
+    { name: "status", label: "Status", type: "select", options: STATUS_OPTS, required: true },
+    piqueteOpts.length
+      ? { name: "piquete", label: "Piquete / pasto", type: "select", options: piqueteOpts }
+      : { name: "piquete", label: "Piquete / pasto", type: "text" },
+    { name: "observacoes", label: "Observações", type: "textarea" },
+  ];
+}
 const PESAGEM_FIELDS = [
   { name: "data_pesagem", label: "Data da pesagem", type: "date", required: true },
   { name: "peso_medio", label: "Peso médio (kg)", type: "number", required: true },
@@ -145,6 +153,19 @@ const CUSTO_FIELDS = [
   { name: "descricao", label: "Descrição", type: "text", required: true },
   { name: "data_custo", label: "Data do custo", type: "date", required: true },
   { name: "valor_total", label: "Valor total (R$)", type: "number", required: true },
+];
+const CONFIGURACOES_FIELDS = [
+  { name: "nome_fazenda", label: "Nome da fazenda", type: "text", required: true },
+  { name: "proprietario", label: "Proprietário", type: "text" },
+  { name: "metodo_rateio_padrao", label: "Método de rateio padrão para novos custos", type: "select", options: METODO_RATEIO_OPTS, required: true },
+];
+const PIQUETE_FIELDS = [
+  { name: "nome", label: "Nome do piquete", type: "text", required: true },
+  { name: "capacidade_cabecas", label: "Capacidade (cabeças)", type: "number", step: "1" },
+  { name: "observacoes", label: "Observações", type: "textarea" },
+];
+const CATEGORIA_FIELDS = [
+  { name: "nome", label: "Nome da categoria", type: "text", required: true },
 ];
 
 function prepareValues(fields, values) {
@@ -360,6 +381,7 @@ function BottomNav({ tab, onChange }) {
     { id: "dashboard", label: "Painel", icon: Home },
     { id: "lotes", label: "Lotes", icon: Layers },
     { id: "custos", label: "Custos", icon: Wallet },
+    { id: "configuracoes", label: "Config.", icon: Settings },
   ];
   return (
     <nav className="fixed bottom-0 left-0 right-0 border-t flex z-40" style={{ backgroundColor: COLORS.surface, borderColor: COLORS.border }}>
@@ -476,13 +498,14 @@ function Dashboard({ data, onNavigate }) {
 // =====================================================================
 // Lista de lotes
 // =====================================================================
-function LotesList({ lotes, onSelect, reload, showToast }) {
+function LotesList({ lotes, categorias, piquetes, onSelect, reload, showToast }) {
   const [filter, setFilter] = useState("todos");
   const [showForm, setShowForm] = useState(false);
   const filtered = filter === "todos" ? lotes : lotes.filter((l) => l.status === filter);
+  const fields = loteFields(categorias, piquetes);
 
   const handleCreate = async (values) => {
-    await supaInsert("lotes", prepareValues(LOTE_FIELDS, values));
+    await supaInsert("lotes", prepareValues(fields, values));
     await reload();
     setShowForm(false);
     showToast("Lote cadastrado com sucesso.");
@@ -548,7 +571,7 @@ function LotesList({ lotes, onSelect, reload, showToast }) {
       {showForm && (
         <Modal title="Novo lote" onClose={() => setShowForm(false)}>
           <EntityForm
-            fields={LOTE_FIELDS}
+            fields={fields}
             initialValues={{ status: "ativo", origem: "compra", data_entrada: todayISO() }}
             onSubmit={handleCreate}
             onCancel={() => setShowForm(false)}
@@ -574,9 +597,10 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
   const eventos = data.eventos.filter((e) => e.lote_id === lote.id);
   const compras = data.compras.filter((c) => c.lote_id === lote.id);
   const vendas = data.vendas.filter((v) => v.lote_id === lote.id);
+  const fields = loteFields(data.categorias, data.piquetes);
 
   const handleUpdateLote = async (values) => {
-    await supaUpdate("lotes", lote.id, prepareValues(LOTE_FIELDS, values));
+    await supaUpdate("lotes", lote.id, prepareValues(fields, values));
     await reload();
     setShowLoteForm(false);
     showToast("Lote atualizado.");
@@ -805,7 +829,7 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
 
       {showLoteForm && (
         <Modal title="Editar lote" onClose={() => setShowLoteForm(false)}>
-          <EntityForm fields={LOTE_FIELDS} initialValues={lote} onSubmit={handleUpdateLote} onCancel={() => setShowLoteForm(false)} submitLabel="Salvar alterações" />
+          <EntityForm fields={fields} initialValues={lote} onSubmit={handleUpdateLote} onCancel={() => setShowLoteForm(false)} submitLabel="Salvar alterações" />
         </Modal>
       )}
 
@@ -848,13 +872,13 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
 // =====================================================================
 // Custos e rateio
 // =====================================================================
-function CustosScreen({ custos, rateios, reload, showToast }) {
+function CustosScreen({ custos, rateios, metodoRateioPadrao, reload, showToast }) {
   const [showForm, setShowForm] = useState(false);
   const [selected, setSelected] = useState(null);
 
   const handleCreate = async (values) => {
     const payload = prepareValues(CUSTO_FIELDS, values);
-    payload.metodo_rateio = "proporcional_cabecas";
+    payload.metodo_rateio = metodoRateioPadrao || "proporcional_cabecas";
     await supaInsert("custos", payload);
     await reload();
     setShowForm(false);
@@ -907,7 +931,7 @@ function CustosScreen({ custos, rateios, reload, showToast }) {
         <Modal title="Novo custo" onClose={() => setShowForm(false)}>
           <EntityForm fields={CUSTO_FIELDS} initialValues={{ data_custo: todayISO() }} onSubmit={handleCreate} onCancel={() => setShowForm(false)} submitLabel="Lançar custo" />
           <p className="text-xs mt-3" style={{ color: COLORS.text }}>
-            O valor é rateado automaticamente entre os lotes ativos, proporcional à quantidade de cabeças de cada um.
+            O valor é rateado automaticamente entre os lotes ativos, usando o método padrão definido em Configurações ({METODO_RATEIO_LABELS[metodoRateioPadrao] || METODO_RATEIO_LABELS.proporcional_cabecas}).
           </p>
         </Modal>
       )}
@@ -938,6 +962,116 @@ function CustosScreen({ custos, rateios, reload, showToast }) {
               <Trash2 size={14} /> Excluir custo
             </button>
           </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// =====================================================================
+// Configurações
+// =====================================================================
+function ConfiguracoesScreen({ configuracoes, piquetes, categorias, reload, showToast }) {
+  const [showEditFazenda, setShowEditFazenda] = useState(false);
+  const [showPiqueteForm, setShowPiqueteForm] = useState(false);
+  const [showCategoriaForm, setShowCategoriaForm] = useState(false);
+
+  const handleUpdateFazenda = async (values) => {
+    await supaUpdate("configuracoes", configuracoes.id, prepareValues(CONFIGURACOES_FIELDS, values));
+    await reload();
+    setShowEditFazenda(false);
+    showToast("Configurações da fazenda atualizadas.");
+  };
+
+  const handleAddPiquete = async (values) => {
+    await supaInsert("piquetes", prepareValues(PIQUETE_FIELDS, values));
+    await reload();
+    setShowPiqueteForm(false);
+    showToast("Piquete cadastrado.");
+  };
+  const handleDeletePiquete = async (id) => { await supaDelete("piquetes", id); await reload(); showToast("Piquete excluído."); };
+
+  const handleAddCategoria = async (values) => {
+    await supaInsert("categorias_gado", prepareValues(CATEGORIA_FIELDS, values));
+    await reload();
+    setShowCategoriaForm(false);
+    showToast("Categoria cadastrada.");
+  };
+  const handleDeleteCategoria = async (id) => { await supaDelete("categorias_gado", id); await reload(); showToast("Categoria excluída."); };
+
+  return (
+    <div className="space-y-5 pt-1">
+      <h1 className="text-xl font-bold" style={{ color: COLORS.textDark }}>Configurações</h1>
+
+      <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>Dados da fazenda</p>
+            <p className="text-sm mt-1" style={{ color: COLORS.textDark }}>{configuracoes?.nome_fazenda || "—"}</p>
+            {configuracoes?.proprietario && (
+              <p className="text-xs mt-0.5" style={{ color: COLORS.text }}>Proprietário: {configuracoes.proprietario}</p>
+            )}
+            <p className="text-xs mt-2" style={{ color: COLORS.text }}>
+              Método de rateio padrão: {METODO_RATEIO_LABELS[configuracoes?.metodo_rateio_padrao] || "—"}
+            </p>
+          </div>
+          <button onClick={() => setShowEditFazenda(true)} aria-label="Editar dados da fazenda" className="p-1.5 flex-shrink-0">
+            <Pencil size={16} color={COLORS.text} />
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <h2 className="text-sm font-semibold mb-2" style={{ color: COLORS.textDark }}>Piquetes cadastrados</h2>
+        <ListSection
+          items={piquetes}
+          emptyText="Nenhum piquete cadastrado ainda."
+          addLabel="Novo piquete"
+          onAdd={() => setShowPiqueteForm(true)}
+          renderItem={(p) => (
+            <ItemCard
+              key={p.id}
+              title={p.nome}
+              subtitle={p.capacidade_cabecas ? `Capacidade: ${p.capacidade_cabecas} cabeças` : "Sem capacidade definida"}
+              icon={MapPin}
+              onDelete={() => handleDeletePiquete(p.id)}
+            />
+          )}
+        />
+      </div>
+
+      <div>
+        <h2 className="text-sm font-semibold mb-2" style={{ color: COLORS.textDark }}>Categorias de gado</h2>
+        <ListSection
+          items={categorias}
+          emptyText="Nenhuma categoria cadastrada ainda."
+          addLabel="Nova categoria"
+          onAdd={() => setShowCategoriaForm(true)}
+          renderItem={(c) => (
+            <ItemCard key={c.id} title={c.nome} subtitle="Categoria de gado" icon={Tag} onDelete={() => handleDeleteCategoria(c.id)} />
+          )}
+        />
+      </div>
+
+      {showEditFazenda && (
+        <Modal title="Editar dados da fazenda" onClose={() => setShowEditFazenda(false)}>
+          <EntityForm
+            fields={CONFIGURACOES_FIELDS}
+            initialValues={configuracoes}
+            onSubmit={handleUpdateFazenda}
+            onCancel={() => setShowEditFazenda(false)}
+            submitLabel="Salvar alterações"
+          />
+        </Modal>
+      )}
+      {showPiqueteForm && (
+        <Modal title="Novo piquete" onClose={() => setShowPiqueteForm(false)}>
+          <EntityForm fields={PIQUETE_FIELDS} initialValues={{}} onSubmit={handleAddPiquete} onCancel={() => setShowPiqueteForm(false)} submitLabel="Cadastrar piquete" />
+        </Modal>
+      )}
+      {showCategoriaForm && (
+        <Modal title="Nova categoria" onClose={() => setShowCategoriaForm(false)}>
+          <EntityForm fields={CATEGORIA_FIELDS} initialValues={{}} onSubmit={handleAddCategoria} onCancel={() => setShowCategoriaForm(false)} submitLabel="Cadastrar categoria" />
         </Modal>
       )}
     </div>
@@ -985,7 +1119,7 @@ class ErrorBoundary extends Component {
 function Rebanho360App() {
   const [tab, setTab] = useState("dashboard");
   const [selectedLoteId, setSelectedLoteId] = useState(null);
-  const [data, setData] = useState({ lotes: [], pesagens: [], eventos: [], compras: [], vendas: [], custos: [], rateios: [] });
+  const [data, setData] = useState({ lotes: [], pesagens: [], eventos: [], compras: [], vendas: [], custos: [], rateios: [], configuracoes: null, piquetes: [], categorias: [] });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
@@ -998,7 +1132,7 @@ function Rebanho360App() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [lotes, pesagens, eventos, compras, vendas, custos, rateios] = await Promise.all([
+      const [lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoesRows, piquetes, categorias] = await Promise.all([
         supaGet("lotes?select=*&order=data_entrada.desc"),
         supaGet("pesagens?select=*&order=data_pesagem.desc"),
         supaGet("eventos?select=*&order=data_evento.desc"),
@@ -1006,8 +1140,11 @@ function Rebanho360App() {
         supaGet("vendas?select=*&order=data_venda.desc"),
         supaGet("custos?select=*&order=data_custo.desc"),
         supaGet("rateio_custos?select=*,lotes(identificador)"),
+        supaGet("configuracoes?select=*&limit=1"),
+        supaGet("piquetes?select=*&order=nome.asc"),
+        supaGet("categorias_gado?select=*&order=ordem.asc,nome.asc"),
       ]);
-      setData({ lotes, pesagens, eventos, compras, vendas, custos, rateios });
+      setData({ lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoes: configuracoesRows[0] || null, piquetes, categorias });
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -1041,9 +1178,11 @@ function Rebanho360App() {
         ) : tab === "dashboard" ? (
           <Dashboard data={data} onNavigate={navigate} />
         ) : tab === "lotes" ? (
-          <LotesList lotes={data.lotes} onSelect={(id) => navigate("lotes", id)} reload={loadAll} showToast={showToast} />
+          <LotesList lotes={data.lotes} categorias={data.categorias} piquetes={data.piquetes} onSelect={(id) => navigate("lotes", id)} reload={loadAll} showToast={showToast} />
+        ) : tab === "custos" ? (
+          <CustosScreen custos={data.custos} rateios={data.rateios} metodoRateioPadrao={data.configuracoes?.metodo_rateio_padrao} reload={loadAll} showToast={showToast} />
         ) : (
-          <CustosScreen custos={data.custos} rateios={data.rateios} reload={loadAll} showToast={showToast} />
+          <ConfiguracoesScreen configuracoes={data.configuracoes} piquetes={data.piquetes} categorias={data.categorias} reload={loadAll} showToast={showToast} />
         )}
       </main>
 
