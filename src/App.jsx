@@ -441,7 +441,11 @@ function ListSection({ items, emptyText, addLabel, onAdd, renderItem }) {
       >
         <Plus size={16} /> {addLabel}
       </button>
-      {items.length === 0 ? <EmptyState text={emptyText} /> : <div className="space-y-2">{items.map(renderItem)}</div>}
+      {items.length === 0 ? (
+        <EmptyState text={emptyText} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">{items.map(renderItem)}</div>
+      )}
     </div>
   );
 }
@@ -522,16 +526,17 @@ function Switch({ checked, onChange }) {
   );
 }
 
+const NAV_ITEMS = [
+  { id: "dashboard", label: "Painel", icon: Home },
+  { id: "lotes", label: "Lotes", icon: Layers },
+  { id: "custos", label: "Despesas", icon: Wallet },
+  { id: "configuracoes", label: "Config.", icon: Settings },
+];
+
 function BottomNav({ tab, onChange }) {
-  const items = [
-    { id: "dashboard", label: "Painel", icon: Home },
-    { id: "lotes", label: "Lotes", icon: Layers },
-    { id: "custos", label: "Despesas", icon: Wallet },
-    { id: "configuracoes", label: "Config.", icon: Settings },
-  ];
   return (
-    <nav className="fixed bottom-0 left-0 right-0 border-t flex z-40" style={{ backgroundColor: COLORS.surface, borderColor: COLORS.border }}>
-      {items.map((it) => {
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 border-t flex z-40" style={{ backgroundColor: COLORS.surface, borderColor: COLORS.border }}>
+      {NAV_ITEMS.map((it) => {
         const Icon = it.icon;
         const active = tab === it.id;
         return (
@@ -541,6 +546,43 @@ function BottomNav({ tab, onChange }) {
           </button>
         );
       })}
+    </nav>
+  );
+}
+
+function Sidebar({ tab, onChange }) {
+  return (
+    <nav
+      className="hidden md:flex md:flex-col md:w-56 lg:w-64 flex-shrink-0 border-r overflow-y-auto"
+      style={{ backgroundColor: COLORS.surface, borderColor: COLORS.border }}
+    >
+      <div className="flex items-center gap-2 px-5 py-5">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: COLORS.primary }}>
+          <span className="text-sm font-bold" style={{ color: COLORS.accent }}>R</span>
+        </div>
+        <span className="font-bold text-base" style={{ color: COLORS.primary }}>Rebanho360</span>
+      </div>
+      <div className="flex-1 px-3 py-2 space-y-1">
+        {NAV_ITEMS.map((it) => {
+          const Icon = it.icon;
+          const active = tab === it.id;
+          return (
+            <button
+              key={it.id}
+              onClick={() => onChange(it.id)}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm"
+              style={{
+                backgroundColor: active ? COLORS.primarySoft : "transparent",
+                color: active ? COLORS.primary : COLORS.text,
+                fontWeight: active ? 600 : 400,
+              }}
+            >
+              <Icon size={18} color={active ? COLORS.primary : COLORS.text} />
+              {it.label === "Config." ? "Configurações" : it.label}
+            </button>
+          );
+        })}
+      </div>
     </nav>
   );
 }
@@ -730,22 +772,24 @@ function Dashboard({ data, onNavigate }) {
         </p>
       </div>
 
-      <CotacaoArrobaCard tipos={cotacoesTipos} cotacao={cotacao} onRetry={carregarCotacao} />
+      <div className="lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
+        <CotacaoArrobaCard tipos={cotacoesTipos} cotacao={cotacao} onRetry={carregarCotacao} />
 
-      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-2xl p-5 mt-5 lg:mt-0" style={{ backgroundColor: COLORS.primary }}>
+          <p className="text-sm text-white opacity-80">Despesa do rebanho este mês</p>
+          <p className="text-3xl font-bold text-white mt-1">{formatBRL(custoMes)}</p>
+          <div className="flex items-center gap-1.5 mt-2">
+            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: COLORS.accent }} />
+            <p className="text-sm text-white opacity-80">{formatBRL(custoPorCabeca)} por cabeça</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard label="Lotes ativos" value={lotesAtivos.length} />
         <KpiCard label="Cabeças no rebanho" value={totalCabecas.toLocaleString("pt-BR")} />
         <KpiCard label="Peso médio geral" value={`${pesoPonderado.toFixed(0)} kg`} />
         <KpiCard label="Despesas lançadas" value={custos.length} />
-      </div>
-
-      <div className="rounded-2xl p-5" style={{ backgroundColor: COLORS.primary }}>
-        <p className="text-sm text-white opacity-80">Despesa do rebanho este mês</p>
-        <p className="text-3xl font-bold text-white mt-1">{formatBRL(custoMes)}</p>
-        <div className="flex items-center gap-1.5 mt-2">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: COLORS.accent }} />
-          <p className="text-sm text-white opacity-80">{formatBRL(custoPorCabeca)} por cabeça</p>
-        </div>
       </div>
 
       <div>
@@ -753,7 +797,7 @@ function Dashboard({ data, onNavigate }) {
           <h2 className="text-sm font-semibold" style={{ color: COLORS.textDark }}>Resumo do período</h2>
         </div>
         <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} onClear={() => { setDateFrom(""); setDateTo(""); }} />
-        <div className="grid grid-cols-2 gap-3 mt-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-3">
           <KpiCard label={temFiltro ? "Despesas no período" : "Despesas (total)"} value={formatBRL(custoPeriodoTotal)} />
           <KpiCard label={temFiltro ? "Custo/cabeça no período" : "Custo/cabeça (total)"} value={formatBRL(custoPorCabecaPeriodo)} />
           <KpiCard label={temFiltro ? "Compras no período" : "Compras (total)"} value={`${comprasPeriodo.length} · ${formatBRL(comprasValorPeriodo)}`} />
@@ -761,6 +805,7 @@ function Dashboard({ data, onNavigate }) {
         </div>
       </div>
 
+      <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
       <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
         <div className="flex items-center justify-between mb-1">
           <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>
@@ -836,7 +881,9 @@ function Dashboard({ data, onNavigate }) {
           </div>
         )}
       </div>
+      </div>
 
+      <div className="lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start space-y-5 lg:space-y-0">
       <div>
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-sm font-semibold" style={{ color: COLORS.textDark }}>Lotes ativos</h2>
@@ -887,6 +934,7 @@ function Dashboard({ data, onNavigate }) {
             })}
           </div>
         )}
+      </div>
       </div>
     </div>
   );
@@ -946,7 +994,7 @@ function LotesList({ lotes, categorias, piquetes, onSelect, reload, showToast })
       {filtered.length === 0 ? (
         <EmptyState text="Nenhum lote encontrado." />
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {filtered.map((l) => (
             <button
               key={l.id}
@@ -1167,7 +1215,7 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
               {estimativa.semPeso ? (
                 <p className="text-sm" style={{ color: COLORS.text }}>Registre uma pesagem para calcular a estimativa.</p>
               ) : (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                   <div>
                     <p className="text-xs" style={{ color: COLORS.text }}>Ganho diário estimado</p>
                     <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>{estimativa.regra.ganhoDiarioKg.toFixed(2)} kg/dia</p>
@@ -1209,7 +1257,7 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
               </div>
             </div>
           )}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <KpiCard label="Pesagens registradas" value={pesagensDesc.length} />
             <KpiCard label="Eventos registrados" value={eventos.length} />
             <KpiCard label="Compras" value={compras.length} />
@@ -1300,7 +1348,7 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
         historicoFiltrado.length === 0 ? (
           <EmptyState text={dateFrom || dateTo ? "Nenhuma movimentação encontrada para o período." : "Nenhuma movimentação de piquete registrada para este lote."} />
         ) : (
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
             {historicoFiltrado.map((h) => {
               const piqueteInfo = data.piquetes.find((p) => p.nome === h.piquete);
               return (
@@ -1416,7 +1464,7 @@ function DespesasScreen({ custos, rateios, lotes, categoriasDespesa, metodoRatei
       {custosFiltrados.length === 0 ? (
         <EmptyState text="Nenhuma despesa encontrada para o período." />
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
           {custosFiltrados.map((c) => (
             <button
               key={c.id}
@@ -1652,7 +1700,7 @@ function ConfiguracoesScreen({ configuracoes, piquetes, categorias, categoriasDe
         {(cotacoesTipos || []).length === 0 ? (
           <EmptyState text="Nenhum tipo de cotação disponível." />
         ) : (
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
             {cotacoesTipos.map((t) => (
               <div key={t.id} className="flex items-center justify-between rounded-xl border p-3.5" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
                 <div className="min-w-0">
@@ -1803,45 +1851,54 @@ function Rebanho360App() {
   const selectedLote = data.lotes.find((l) => l.id === selectedLoteId);
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: COLORS.bg, fontFamily: "'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
-      <header className="px-5 pt-5 pb-3 flex items-center gap-2">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: COLORS.primary }}>
-          <span className="text-sm font-bold" style={{ color: COLORS.accent }}>R</span>
-        </div>
-        <span className="font-bold text-base" style={{ color: COLORS.primary }}>Rebanho360</span>
-      </header>
+    <div
+      className="min-h-screen md:h-screen flex flex-col md:flex-row"
+      style={{ backgroundColor: COLORS.bg, fontFamily: "'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}
+    >
+      <Sidebar tab={selectedLote ? "lotes" : tab} onChange={(t) => navigate(t)} />
 
-      <main className="flex-1 px-5 overflow-y-auto pb-24">
-        {selectedLote ? (
-          <LoteDetail lote={selectedLote} data={data} onBack={() => navigate("lotes")} reload={loadAll} showToast={showToast} />
-        ) : tab === "dashboard" ? (
-          <Dashboard data={data} onNavigate={navigate} />
-        ) : tab === "lotes" ? (
-          <LotesList lotes={data.lotes} categorias={data.categorias} piquetes={data.piquetes} onSelect={(id) => navigate("lotes", id)} reload={loadAll} showToast={showToast} />
-        ) : tab === "custos" ? (
-          <DespesasScreen
-            custos={data.custos}
-            rateios={data.rateios}
-            lotes={data.lotes}
-            categoriasDespesa={data.categoriasDespesa}
-            metodoRateioPadrao={data.configuracoes?.metodo_rateio_padrao}
-            reload={loadAll}
-            showToast={showToast}
-          />
-        ) : (
-          <ConfiguracoesScreen
-            configuracoes={data.configuracoes}
-            piquetes={data.piquetes}
-            categorias={data.categorias}
-            categoriasDespesa={data.categoriasDespesa}
-            cotacoesTipos={data.cotacoesTipos}
-            reload={loadAll}
-            showToast={showToast}
-          />
-        )}
-      </main>
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="md:hidden px-5 pt-5 pb-3 flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: COLORS.primary }}>
+            <span className="text-sm font-bold" style={{ color: COLORS.accent }}>R</span>
+          </div>
+          <span className="font-bold text-base" style={{ color: COLORS.primary }}>Rebanho360</span>
+        </header>
 
-      <BottomNav tab={selectedLote ? "lotes" : tab} onChange={(t) => navigate(t)} />
+        <main className="flex-1 px-5 md:px-8 lg:px-10 md:py-8 overflow-y-auto pb-24 md:pb-8">
+          <div className="max-w-7xl mx-auto">
+            {selectedLote ? (
+              <LoteDetail lote={selectedLote} data={data} onBack={() => navigate("lotes")} reload={loadAll} showToast={showToast} />
+            ) : tab === "dashboard" ? (
+              <Dashboard data={data} onNavigate={navigate} />
+            ) : tab === "lotes" ? (
+              <LotesList lotes={data.lotes} categorias={data.categorias} piquetes={data.piquetes} onSelect={(id) => navigate("lotes", id)} reload={loadAll} showToast={showToast} />
+            ) : tab === "custos" ? (
+              <DespesasScreen
+                custos={data.custos}
+                rateios={data.rateios}
+                lotes={data.lotes}
+                categoriasDespesa={data.categoriasDespesa}
+                metodoRateioPadrao={data.configuracoes?.metodo_rateio_padrao}
+                reload={loadAll}
+                showToast={showToast}
+              />
+            ) : (
+              <ConfiguracoesScreen
+                configuracoes={data.configuracoes}
+                piquetes={data.piquetes}
+                categorias={data.categorias}
+                categoriasDespesa={data.categoriasDespesa}
+                cotacoesTipos={data.cotacoesTipos}
+                reload={loadAll}
+                showToast={showToast}
+              />
+            )}
+          </div>
+        </main>
+
+        <BottomNav tab={selectedLote ? "lotes" : tab} onChange={(t) => navigate(t)} />
+      </div>
       {toast && <Toast toast={toast} />}
     </div>
   );
