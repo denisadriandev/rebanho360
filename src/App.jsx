@@ -75,6 +75,12 @@ const formatDate = (d) => {
 };
 const formatKg = (v) => (v === null || v === undefined || v === "" ? "—" : `${Number(v).toLocaleString("pt-BR")} kg`);
 const todayISO = () => new Date().toISOString().slice(0, 10);
+const inDateRange = (dateStr, from, to) => {
+  if (!dateStr) return false;
+  if (from && dateStr < from) return false;
+  if (to && dateStr > to) return false;
+  return true;
+};
 
 // =====================================================================
 // Rótulos e opções (banco guarda em snake_case, tela mostra em pt-BR)
@@ -376,6 +382,39 @@ function ItemCard({ title, subtitle, icon: Icon, onDelete }) {
   );
 }
 
+function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
+  const hasFilter = !!(from || to);
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-1.5">
+        <label className="text-xs" style={{ color: COLORS.text }}>De</label>
+        <input
+          type="date"
+          value={from || ""}
+          onChange={(e) => onFromChange(e.target.value)}
+          className="rounded-lg border px-2.5 py-1.5 text-sm"
+          style={{ borderColor: COLORS.border, color: COLORS.textDark }}
+        />
+      </div>
+      <div className="flex items-center gap-1.5">
+        <label className="text-xs" style={{ color: COLORS.text }}>Até</label>
+        <input
+          type="date"
+          value={to || ""}
+          onChange={(e) => onToChange(e.target.value)}
+          className="rounded-lg border px-2.5 py-1.5 text-sm"
+          style={{ borderColor: COLORS.border, color: COLORS.textDark }}
+        />
+      </div>
+      {hasFilter && (
+        <button onClick={onClear} className="text-xs font-medium" style={{ color: COLORS.primary }}>
+          Limpar
+        </button>
+      )}
+    </div>
+  );
+}
+
 function BottomNav({ tab, onChange }) {
   const items = [
     { id: "dashboard", label: "Painel", icon: Home },
@@ -501,7 +540,10 @@ function Dashboard({ data, onNavigate }) {
 function LotesList({ lotes, categorias, piquetes, onSelect, reload, showToast }) {
   const [filter, setFilter] = useState("todos");
   const [showForm, setShowForm] = useState(false);
-  const filtered = filter === "todos" ? lotes : lotes.filter((l) => l.status === filter);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const filtered = (filter === "todos" ? lotes : lotes.filter((l) => l.status === filter))
+    .filter((l) => inDateRange(l.data_entrada, dateFrom, dateTo));
   const fields = loteFields(categorias, piquetes);
 
   const handleCreate = async (values) => {
@@ -540,6 +582,8 @@ function LotesList({ lotes, categorias, piquetes, onSelect, reload, showToast })
           </button>
         ))}
       </div>
+
+      <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} onClear={() => { setDateFrom(""); setDateTo(""); }} />
 
       {filtered.length === 0 ? (
         <EmptyState text="Nenhum lote encontrado." />
@@ -591,12 +635,18 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
   const [showLoteForm, setShowLoteForm] = useState(false);
   const [showDeleteLote, setShowDeleteLote] = useState(false);
   const [formFor, setFormFor] = useState(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   const pesagensDesc = data.pesagens.filter((p) => p.lote_id === lote.id);
   const pesagensAsc = [...pesagensDesc].sort((a, b) => a.data_pesagem.localeCompare(b.data_pesagem));
   const eventos = data.eventos.filter((e) => e.lote_id === lote.id);
   const compras = data.compras.filter((c) => c.lote_id === lote.id);
   const vendas = data.vendas.filter((v) => v.lote_id === lote.id);
+  const pesagensFiltradas = pesagensDesc.filter((p) => inDateRange(p.data_pesagem, dateFrom, dateTo));
+  const eventosFiltrados = eventos.filter((e) => inDateRange(e.data_evento, dateFrom, dateTo));
+  const comprasFiltradas = compras.filter((c) => inDateRange(c.data_compra, dateFrom, dateTo));
+  const vendasFiltradas = vendas.filter((v) => inDateRange(v.data_venda, dateFrom, dateTo));
   const fields = loteFields(data.categorias, data.piquetes);
 
   const handleUpdateLote = async (values) => {
@@ -722,6 +772,10 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
         ))}
       </div>
 
+      {subtab !== "geral" && (
+        <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} onClear={() => { setDateFrom(""); setDateTo(""); }} />
+      )}
+
       {subtab === "geral" && (
         <div className="space-y-4">
           {pesagensAsc.length >= 2 && (
@@ -757,8 +811,8 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
 
       {subtab === "pesagens" && (
         <ListSection
-          items={pesagensDesc}
-          emptyText="Nenhuma pesagem registrada para este lote."
+          items={pesagensFiltradas}
+          emptyText={dateFrom || dateTo ? "Nenhuma pesagem encontrada para o período." : "Nenhuma pesagem registrada para este lote."}
           addLabel="Nova pesagem"
           onAdd={() => setFormFor({ type: "pesagem" })}
           renderItem={(p) => (
@@ -775,8 +829,8 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
 
       {subtab === "eventos" && (
         <ListSection
-          items={eventos}
-          emptyText="Nenhum evento registrado para este lote."
+          items={eventosFiltrados}
+          emptyText={dateFrom || dateTo ? "Nenhum evento encontrado para o período." : "Nenhum evento registrado para este lote."}
           addLabel="Novo evento"
           onAdd={() => setFormFor({ type: "evento" })}
           renderItem={(e) => (
@@ -793,8 +847,8 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
 
       {subtab === "compras" && (
         <ListSection
-          items={compras}
-          emptyText="Nenhuma compra registrada para este lote."
+          items={comprasFiltradas}
+          emptyText={dateFrom || dateTo ? "Nenhuma compra encontrada para o período." : "Nenhuma compra registrada para este lote."}
           addLabel="Nova compra"
           onAdd={() => setFormFor({ type: "compra" })}
           renderItem={(c) => (
@@ -811,8 +865,8 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
 
       {subtab === "vendas" && (
         <ListSection
-          items={vendas}
-          emptyText="Nenhuma venda registrada para este lote."
+          items={vendasFiltradas}
+          emptyText={dateFrom || dateTo ? "Nenhuma venda encontrada para o período." : "Nenhuma venda registrada para este lote."}
           addLabel="Nova venda"
           onAdd={() => setFormFor({ type: "venda" })}
           renderItem={(v) => (
@@ -875,6 +929,9 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
 function CustosScreen({ custos, rateios, metodoRateioPadrao, reload, showToast }) {
   const [showForm, setShowForm] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const custosFiltrados = custos.filter((c) => inDateRange(c.data_custo, dateFrom, dateTo));
 
   const handleCreate = async (values) => {
     const payload = prepareValues(CUSTO_FIELDS, values);
@@ -886,7 +943,7 @@ function CustosScreen({ custos, rateios, metodoRateioPadrao, reload, showToast }
   };
   const handleDelete = async (id) => { await supaDelete("custos", id); await reload(); showToast("Custo excluído."); setSelected(null); };
 
-  const totalGeral = custos.reduce((s, c) => s + Number(c.valor_total || 0), 0);
+  const totalGeral = custosFiltrados.reduce((s, c) => s + Number(c.valor_total || 0), 0);
 
   return (
     <div className="space-y-4 pt-1">
@@ -902,15 +959,17 @@ function CustosScreen({ custos, rateios, metodoRateioPadrao, reload, showToast }
       </div>
 
       <div className="rounded-2xl p-4" style={{ backgroundColor: COLORS.primary }}>
-        <p className="text-sm text-white opacity-80">Total lançado no histórico</p>
+        <p className="text-sm text-white opacity-80">Total no período filtrado</p>
         <p className="text-2xl font-bold text-white mt-1">{formatBRL(totalGeral)}</p>
       </div>
 
-      {custos.length === 0 ? (
-        <EmptyState text="Nenhum custo lançado ainda." />
+      <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} onClear={() => { setDateFrom(""); setDateTo(""); }} />
+
+      {custosFiltrados.length === 0 ? (
+        <EmptyState text="Nenhum custo encontrado para o período." />
       ) : (
         <div className="space-y-2">
-          {custos.map((c) => (
+          {custosFiltrados.map((c) => (
             <button
               key={c.id}
               onClick={() => setSelected(c)}
