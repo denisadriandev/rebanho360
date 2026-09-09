@@ -526,16 +526,20 @@ function buildSerieTemporal(custosBase, mode, temFiltro, dateFrom, dateTo) {
   });
   return buckets;
 }
-function buildComparativoLotes(lotesAtivos, rateios, custosById, temFiltro, dateFrom, dateTo) {
+function buildComparativoLotes(lotesAtivos, rateios, custosById, temFiltro, dateFrom, dateTo, metrica) {
   return lotesAtivos
-    .map((l) => ({
-      nome: l.identificador,
-      custo: rateios
+    .map((l) => {
+      const custoTotal = rateios
         .filter((r) => r.lote_id === l.id)
         .filter((r) => !temFiltro || inDateRange(custosById[r.custo_id]?.data_custo, dateFrom, dateTo))
-        .reduce((s, r) => s + Number(r.valor_rateado || 0), 0),
-    }))
-    .sort((a, b) => b.custo - a.custo)
+        .reduce((s, r) => s + Number(r.valor_rateado || 0), 0);
+      const cabecas = l.quantidade_atual || 0;
+      return {
+        nome: l.identificador,
+        valor: metrica === "porCabeca" ? (cabecas > 0 ? custoTotal / cabecas : 0) : custoTotal,
+      };
+    })
+    .sort((a, b) => b.valor - a.valor)
     .slice(0, 8);
 }
 const compactBRL = (v) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${Math.round(v)}`);
@@ -612,6 +616,7 @@ function Dashboard({ data, onNavigate }) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [chartMode, setChartMode] = useState("mensal");
+  const [comparativoMetrica, setComparativoMetrica] = useState("total");
   const [cotacao, setCotacao] = useState({ loading: true, error: null, payload: null });
 
   const carregarCotacao = useCallback(() => {
@@ -644,7 +649,7 @@ function Dashboard({ data, onNavigate }) {
 
   const custosById = Object.fromEntries(custos.map((c) => [c.id, c]));
   const serieTemporal = buildSerieTemporal(temFiltro ? custosPeriodo : custos, chartMode, temFiltro, dateFrom, dateTo);
-  const comparativoLotes = buildComparativoLotes(lotesAtivos, rateios, custosById, temFiltro, dateFrom, dateTo);
+  const comparativoLotes = buildComparativoLotes(lotesAtivos, rateios, custosById, temFiltro, dateFrom, dateTo, comparativoMetrica);
 
   return (
     <div className="space-y-5 pt-1">
@@ -725,9 +730,26 @@ function Dashboard({ data, onNavigate }) {
       </div>
 
       <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
-        <p className="text-sm font-semibold mb-2" style={{ color: COLORS.textDark }}>
-          Custo rateado por lote{temFiltro ? " (período filtrado)" : ""}
-        </p>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>
+            Custo rateado por lote{temFiltro ? " (período filtrado)" : ""}
+          </p>
+          <div className="flex gap-1 flex-shrink-0">
+            {[["total", "Total"], ["porCabeca", "Por cabeça"]].map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setComparativoMetrica(val)}
+                className="px-2.5 py-1 rounded-full text-xs whitespace-nowrap"
+                style={{
+                  backgroundColor: comparativoMetrica === val ? COLORS.primary : "transparent",
+                  color: comparativoMetrica === val ? "#fff" : COLORS.text,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         {comparativoLotes.length === 0 ? (
           <EmptyState text="Nenhum lote ativo para comparar." />
         ) : (
@@ -737,8 +759,8 @@ function Dashboard({ data, onNavigate }) {
                 <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 11, fill: COLORS.text }} tickFormatter={compactBRL} />
                 <YAxis type="category" dataKey="nome" tick={{ fontSize: 11, fill: COLORS.text }} width={72} />
-                <Tooltip formatter={(v) => [formatBRL(v), "Custo rateado"]} />
-                <Bar dataKey="custo" fill={COLORS.primary} radius={[0, 4, 4, 0]} isAnimationActive={false} />
+                <Tooltip formatter={(v) => [formatBRL(v), comparativoMetrica === "porCabeca" ? "Custo por cabeça" : "Custo total rateado"]} />
+                <Bar dataKey="valor" fill={COLORS.primary} radius={[0, 4, 4, 0]} isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </div>
