@@ -5,7 +5,7 @@ import {
 import {
   Home, Layers, Wallet, Plus, X, Trash2, Pencil, ArrowLeft, Loader2,
   Scale, Syringe, ShoppingCart, Tag, ChevronRight, Settings, MapPin,
-  TrendingUp, RefreshCw, AlertCircle,
+  TrendingUp, RefreshCw, AlertCircle, HelpCircle,
 } from "lucide-react";
 
 // =====================================================================
@@ -226,6 +226,17 @@ const RENOMEAR_RETROATIVO_FIELD = {
   type: "checkbox",
   checkboxLabel: "Atualizar também os lançamentos já cadastrados com o nome anterior (senão, o novo nome vale só para lançamentos futuros)",
 };
+const AJUDA_CATEGORIAS_DESPESA = [
+  { categoria: "Insumo nutricional", exemplos: "Ração, sal mineral, sal proteinado, silagem, feno, milho, farelo de soja, núcleo/concentrado, ureia." },
+  { categoria: "Sanidade e veterinária", exemplos: "Vacinas, vermífugos, antibióticos, carrapaticidas, consulta veterinária, exames, medicamentos." },
+  { categoria: "Mão de obra", exemplos: "Salários, diaristas, encargos trabalhistas (INSS, FGTS), serviços terceirizados de manejo." },
+  { categoria: "Infraestrutura e manutenção", exemplos: "Reforma de cerca, curral, cochos, bebedouros, mourões, arame, poço, represa, galpão." },
+  { categoria: "Combustível e transporte", exemplos: "Diesel, gasolina, frete de gado, transporte de insumos, pedágio, manutenção de veículos e máquinas móveis." },
+  { categoria: "Arrendamento de pasto", exemplos: "Aluguel de área de pastagem, contratos de parceria pecuária." },
+  { categoria: "Impostos e taxas", exemplos: "ITR, Funrural, GTA, taxas de sindicato rural, licenças ambientais." },
+  { categoria: "Genética e reprodução", exemplos: "Sêmen, inseminação artificial, hormônios reprodutivos, aluguel/compra de touro, transferência de embrião." },
+  { categoria: "Despesas gerais administrativas", exemplos: "Contabilidade, taxas bancárias, internet/telefone da fazenda, assinatura de sistemas, material de escritório." },
+];
 
 function prepareValues(fields, values) {
   const out = {};
@@ -1440,6 +1451,7 @@ function buildComparativoCategorias(custosFiltrados) {
 
 function DespesasScreen({ custos, rateios, lotes, categoriasDespesa, metodoRateioPadrao, reload, showToast }) {
   const [showForm, setShowForm] = useState(false);
+  const [showAjuda, setShowAjuda] = useState(false);
   const [selected, setSelected] = useState(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -1467,7 +1479,12 @@ function DespesasScreen({ custos, rateios, lotes, categoriasDespesa, metodoRatei
   return (
     <div className="space-y-4 pt-1">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold" style={{ color: COLORS.textDark }}>Despesas</h1>
+        <div className="flex items-center gap-1.5">
+          <h1 className="text-xl font-bold" style={{ color: COLORS.textDark }}>Despesas</h1>
+          <button onClick={() => setShowAjuda(true)} aria-label="Ajuda com categorias de despesa" className="p-1 rounded-full">
+            <HelpCircle size={18} color={COLORS.text} />
+          </button>
+        </div>
         <button
           onClick={() => setShowForm(true)}
           className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-white"
@@ -1533,6 +1550,19 @@ function DespesasScreen({ custos, rateios, lotes, categoriasDespesa, metodoRatei
             onCancel={() => setShowForm(false)}
             submitLabel="Lançar despesa"
           />
+        </Modal>
+      )}
+
+      {showAjuda && (
+        <Modal title="O que lançar em cada categoria" onClose={() => setShowAjuda(false)}>
+          <div className="space-y-4">
+            {AJUDA_CATEGORIAS_DESPESA.map((item) => (
+              <div key={item.categoria}>
+                <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>{item.categoria}</p>
+                <p className="text-xs mt-0.5" style={{ color: COLORS.text }}>{item.exemplos}</p>
+              </div>
+            ))}
+          </div>
         </Modal>
       )}
 
