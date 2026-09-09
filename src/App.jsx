@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, Component } from "react";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import {
   Home, Layers, Wallet, Plus, X, Trash2, Pencil, ArrowLeft, Loader2,
   Scale, Syringe, ShoppingCart, Tag, ChevronRight, Settings, MapPin,
+  TrendingUp, RefreshCw, AlertCircle,
 } from "lucide-react";
 
 // =====================================================================
@@ -49,6 +50,18 @@ async function supaDelete(table, id) {
 }
 
 // =====================================================================
+// Cotação pública da arroba (API AgroDoc AI, dados CEPEA/Esalq)
+// =====================================================================
+const COTACAO_API_URL = "https://agrodocai.com.br/api/v1/cotacao";
+const COTACAO_FONTE = "CEPEA/Esalq via AgroDoc AI";
+
+async function fetchCotacaoArroba() {
+  const res = await fetch(COTACAO_API_URL);
+  if (!res.ok) throw new Error("Não foi possível obter a cotação agora");
+  return res.json();
+}
+
+// =====================================================================
 // Identidade visual (tokens definidos no PRD do Rebanho360)
 // =====================================================================
 const COLORS = {
@@ -80,6 +93,13 @@ const inDateRange = (dateStr, from, to) => {
   if (from && dateStr < from) return false;
   if (to && dateStr > to) return false;
   return true;
+};
+const MESES_ABREV = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const formatCotacaoHora = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 };
 
 // =====================================================================
@@ -415,6 +435,23 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
   );
 }
 
+function Switch({ checked, onChange }) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="relative flex-shrink-0 rounded-full transition-colors"
+      style={{ width: 42, height: 24, backgroundColor: checked ? COLORS.primary : COLORS.border }}
+    >
+      <span
+        className="absolute top-0.5 rounded-full bg-white transition-transform"
+        style={{ width: 20, height: 20, left: 2, transform: checked ? "translateX(18px)" : "translateX(0)" }}
+      />
+    </button>
+  );
+}
+
 function BottomNav({ tab, onChange }) {
   const items = [
     { id: "dashboard", label: "Painel", icon: Home },
@@ -439,10 +476,114 @@ function BottomNav({ tab, onChange }) {
 }
 
 // =====================================================================
-// Painel (dashboard)
+// Painel (dashboard) — cotação pública, indicadores e gráficos
 // =====================================================================
+function buildMonthlySeries(custos, months = 12) {
+  const now = new Date();
+  const buckets = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    buckets.push({
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+      label: `${MESES_ABREV[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`,
+      total: 0,
+    });
+  }
+  const byKey = Object.fromEntries(buckets.map((b) => [b.key, b]));
+  custos.forEach((c) => {
+    const key = c.data_custo?.slice(0, 7);
+    if (key && byKey[key]) byKey[key].total += Number(c.valor_total || 0);
+  });
+  return buckets;
+}
+function buildYearlySeries(custos, years = 5) {
+  const now = new Date();
+  const buckets = [];
+  for (let i = years - 1; i >= 0; i--) {
+    const y = String(now.getFullYear() - i);
+    buckets.push({ key: y, label: y, total: 0 });
+  }
+  const byKey = Object.fromEntries(buckets.map((b) => [b.key, b]));
+  custos.forEach((c) => {
+    const key = c.data_custo?.slice(0, 4);
+    if (key && byKey[key]) byKey[key].total += Number(c.valor_total || 0);
+  });
+  return buckets;
+}
+function buildComparativoLotes(lotesAtivos, rateios) {
+  return lotesAtivos
+    .map((l) => ({
+      nome: l.identificador,
+      custo: rateios.filter((r) => r.lote_id === l.id).reduce((s, r) => s + Number(r.valor_rateado || 0), 0),
+    }))
+    .sort((a, b) => b.custo - a.custo)
+    .slice(0, 8);
+}
+const compactBRL = (v) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${Math.round(v)}`);
+
+function CotacaoArrobaCard({ tipos, cotacao, onRetry }) {
+  const tiposVisiveis = (tipos || []).filter((t) => t.exibir_dashboard).sort((a, b) => a.ordem - b.ordem);
+  if (tiposVisiveis.length === 0) return null;
+  return (
+    <div className="rounded-2xl p-5" style={{ backgroundColor: COLORS.primary }}>
+      <div className="flex items-center gap-1.5">
+        <TrendingUp size={16} color={COLORS.accent} />
+        <p className="text-sm text-white opacity-80">Cotação da arroba — mercado</p>
+      </div>
+      {cotacao.loading ? (
+        <div className="flex items-center gap-2 mt-3">
+          <Loader2 size={16} className="animate-spin" color="#fff" />
+          <p className="text-sm text-white opacity-70">Buscando cotação…</p>
+        </div>
+      ) : cotacao.error ? (
+        <div className="mt-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={15} color={COLORS.accent} />
+            <p className="text-sm text-white opacity-80">Cotação indisponível no momento.</p>
+          </div>
+          <button onClick={onRetry} className="flex items-center gap-1.5 text-xs text-white opacity-70 mt-2">
+            <RefreshCw size={12} /> Tentar novamente
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-4 mt-3">
+            {tiposVisiveis.map((t) => {
+              const valor = cotacao.payload?.[t.campo_api];
+              return (
+                <div key={t.id}>
+                  <p className="text-2xl font-bold text-white">{valor != null ? formatBRL(valor) : "—"}</p>
+                  <p className="text-xs text-white opacity-70 mt-0.5">{t.nome} · {t.unidade}</p>
+                </div>
+              );
+            })}
+          </div>
+          {cotacao.payload?.atualizado && (
+            <p className="text-xs text-white opacity-50 mt-3">
+              Atualizado {formatCotacaoHora(cotacao.payload.atualizado)} · Fonte: {COTACAO_FONTE}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function Dashboard({ data, onNavigate }) {
-  const { lotes, custos, eventos } = data;
+  const { lotes, custos, eventos, compras, vendas, rateios, cotacoesTipos } = data;
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [chartMode, setChartMode] = useState("mensal");
+  const [cotacao, setCotacao] = useState({ loading: true, error: null, payload: null });
+
+  const carregarCotacao = useCallback(() => {
+    setCotacao({ loading: true, error: null, payload: null });
+    fetchCotacaoArroba()
+      .then((payload) => setCotacao({ loading: false, error: null, payload }))
+      .catch((err) => setCotacao({ loading: false, error: err.message, payload: null }));
+  }, []);
+  useEffect(() => { carregarCotacao(); }, [carregarCotacao]);
+
   const lotesAtivos = lotes.filter((l) => l.status === "ativo");
   const totalCabecas = lotesAtivos.reduce((s, l) => s + (l.quantidade_atual || 0), 0);
   const pesoPonderado = totalCabecas > 0
@@ -454,6 +595,18 @@ function Dashboard({ data, onNavigate }) {
   const custoPorCabeca = totalCabecas > 0 ? custoMes / totalCabecas : 0;
   const eventosRecentes = eventos.slice(0, 5);
 
+  const temFiltro = !!(dateFrom || dateTo);
+  const custosPeriodo = custos.filter((c) => (temFiltro ? inDateRange(c.data_custo, dateFrom, dateTo) : true));
+  const comprasPeriodo = compras.filter((c) => (temFiltro ? inDateRange(c.data_compra, dateFrom, dateTo) : true));
+  const vendasPeriodo = vendas.filter((v) => (temFiltro ? inDateRange(v.data_venda, dateFrom, dateTo) : true));
+  const custoPeriodoTotal = custosPeriodo.reduce((s, c) => s + Number(c.valor_total || 0), 0);
+  const custoPorCabecaPeriodo = totalCabecas > 0 ? custoPeriodoTotal / totalCabecas : 0;
+  const comprasValorPeriodo = comprasPeriodo.reduce((s, c) => s + Number(c.valor_total || 0), 0);
+  const vendasValorPeriodo = vendasPeriodo.reduce((s, v) => s + Number(v.valor_total || 0), 0);
+
+  const serieTemporal = chartMode === "mensal" ? buildMonthlySeries(custos, 12) : buildYearlySeries(custos, 5);
+  const comparativoLotes = buildComparativoLotes(lotesAtivos, rateios);
+
   return (
     <div className="space-y-5 pt-1">
       <div>
@@ -462,6 +615,8 @@ function Dashboard({ data, onNavigate }) {
           {now.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
         </p>
       </div>
+
+      <CotacaoArrobaCard tipos={cotacoesTipos} cotacao={cotacao} onRetry={carregarCotacao} />
 
       <div className="grid grid-cols-2 gap-3">
         <KpiCard label="Lotes ativos" value={lotesAtivos.length} />
@@ -477,6 +632,74 @@ function Dashboard({ data, onNavigate }) {
           <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: COLORS.accent }} />
           <p className="text-sm text-white opacity-80">{formatBRL(custoPorCabeca)} por cabeça</p>
         </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold" style={{ color: COLORS.textDark }}>Resumo do período</h2>
+        </div>
+        <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} onClear={() => { setDateFrom(""); setDateTo(""); }} />
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <KpiCard label={temFiltro ? "Custos no período" : "Custos (total)"} value={formatBRL(custoPeriodoTotal)} />
+          <KpiCard label={temFiltro ? "Custo/cabeça no período" : "Custo/cabeça (total)"} value={formatBRL(custoPorCabecaPeriodo)} />
+          <KpiCard label={temFiltro ? "Compras no período" : "Compras (total)"} value={`${comprasPeriodo.length} · ${formatBRL(comprasValorPeriodo)}`} />
+          <KpiCard label={temFiltro ? "Vendas no período" : "Vendas (total)"} value={`${vendasPeriodo.length} · ${formatBRL(vendasValorPeriodo)}`} />
+        </div>
+      </div>
+
+      <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>Custos ao longo do tempo</p>
+          <div className="flex gap-1 flex-shrink-0">
+            {[["mensal", "Mensal"], ["anual", "Anual"]].map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setChartMode(val)}
+                className="px-2.5 py-1 rounded-full text-xs whitespace-nowrap"
+                style={{
+                  backgroundColor: chartMode === val ? COLORS.primary : "transparent",
+                  color: chartMode === val ? "#fff" : COLORS.text,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {custos.length === 0 ? (
+          <EmptyState text="Nenhum custo lançado ainda." />
+        ) : (
+          <div style={{ width: "100%", height: 200 }}>
+            <ResponsiveContainer>
+              <BarChart data={serieTemporal} margin={{ left: -12 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: COLORS.text }} />
+                <YAxis tick={{ fontSize: 11, fill: COLORS.text }} tickFormatter={compactBRL} width={40} />
+                <Tooltip formatter={(v) => [formatBRL(v), "Custo"]} />
+                <Bar dataKey="total" fill={COLORS.primary} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
+        <p className="text-sm font-semibold mb-2" style={{ color: COLORS.textDark }}>Custo rateado por lote</p>
+        {comparativoLotes.length === 0 ? (
+          <EmptyState text="Nenhum lote ativo para comparar." />
+        ) : (
+          <div style={{ width: "100%", height: Math.max(140, comparativoLotes.length * 34) }}>
+            <ResponsiveContainer>
+              <BarChart data={comparativoLotes} layout="vertical" margin={{ left: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: COLORS.text }} tickFormatter={compactBRL} />
+                <YAxis type="category" dataKey="nome" tick={{ fontSize: 11, fill: COLORS.text }} width={72} />
+                <Tooltip formatter={(v) => [formatBRL(v), "Custo rateado"]} />
+                <Bar dataKey="custo" fill={COLORS.primary} radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
       <div>
@@ -1030,10 +1253,15 @@ function CustosScreen({ custos, rateios, metodoRateioPadrao, reload, showToast }
 // =====================================================================
 // Configurações
 // =====================================================================
-function ConfiguracoesScreen({ configuracoes, piquetes, categorias, reload, showToast }) {
+function ConfiguracoesScreen({ configuracoes, piquetes, categorias, cotacoesTipos, reload, showToast }) {
   const [showEditFazenda, setShowEditFazenda] = useState(false);
   const [showPiqueteForm, setShowPiqueteForm] = useState(false);
   const [showCategoriaForm, setShowCategoriaForm] = useState(false);
+
+  const handleToggleCotacao = async (tipo, exibir) => {
+    await supaUpdate("cotacoes_tipos", tipo.id, { exibir_dashboard: exibir });
+    await reload();
+  };
 
   const handleUpdateFazenda = async (values) => {
     await supaUpdate("configuracoes", configuracoes.id, prepareValues(CONFIGURACOES_FIELDS, values));
@@ -1112,6 +1340,28 @@ function ConfiguracoesScreen({ configuracoes, piquetes, categorias, reload, show
         />
       </div>
 
+      <div>
+        <h2 className="text-sm font-semibold mb-2" style={{ color: COLORS.textDark }}>Cotação da arroba no Painel</h2>
+        <p className="text-xs mb-3" style={{ color: COLORS.text }}>
+          Escolha quais tipos de gado aparecem no card de cotação do Painel. Valores vêm de uma API pública (CEPEA/Esalq via AgroDoc AI).
+        </p>
+        {(cotacoesTipos || []).length === 0 ? (
+          <EmptyState text="Nenhum tipo de cotação disponível." />
+        ) : (
+          <div className="space-y-2">
+            {cotacoesTipos.map((t) => (
+              <div key={t.id} className="flex items-center justify-between rounded-xl border p-3.5" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: COLORS.textDark }}>{t.nome}</p>
+                  <p className="text-xs mt-0.5" style={{ color: COLORS.text }}>{t.unidade}</p>
+                </div>
+                <Switch checked={t.exibir_dashboard} onChange={(v) => handleToggleCotacao(t, v)} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {showEditFazenda && (
         <Modal title="Editar dados da fazenda" onClose={() => setShowEditFazenda(false)}>
           <EntityForm
@@ -1178,7 +1428,7 @@ class ErrorBoundary extends Component {
 function Rebanho360App() {
   const [tab, setTab] = useState("dashboard");
   const [selectedLoteId, setSelectedLoteId] = useState(null);
-  const [data, setData] = useState({ lotes: [], pesagens: [], eventos: [], compras: [], vendas: [], custos: [], rateios: [], configuracoes: null, piquetes: [], categorias: [] });
+  const [data, setData] = useState({ lotes: [], pesagens: [], eventos: [], compras: [], vendas: [], custos: [], rateios: [], configuracoes: null, piquetes: [], categorias: [], cotacoesTipos: [] });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
@@ -1191,7 +1441,7 @@ function Rebanho360App() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoesRows, piquetes, categorias] = await Promise.all([
+      const [lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoesRows, piquetes, categorias, cotacoesTipos] = await Promise.all([
         supaGet("lotes?select=*&order=data_entrada.desc"),
         supaGet("pesagens?select=*&order=data_pesagem.desc"),
         supaGet("eventos?select=*&order=data_evento.desc"),
@@ -1202,8 +1452,9 @@ function Rebanho360App() {
         supaGet("configuracoes?select=*&limit=1"),
         supaGet("piquetes?select=*&order=nome.asc"),
         supaGet("categorias_gado?select=*&order=ordem.asc,nome.asc"),
+        supaGet("cotacoes_tipos?select=*&order=ordem.asc"),
       ]);
-      setData({ lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoes: configuracoesRows[0] || null, piquetes, categorias });
+      setData({ lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoes: configuracoesRows[0] || null, piquetes, categorias, cotacoesTipos });
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -1241,7 +1492,7 @@ function Rebanho360App() {
         ) : tab === "custos" ? (
           <CustosScreen custos={data.custos} rateios={data.rateios} metodoRateioPadrao={data.configuracoes?.metodo_rateio_padrao} reload={loadAll} showToast={showToast} />
         ) : (
-          <ConfiguracoesScreen configuracoes={data.configuracoes} piquetes={data.piquetes} categorias={data.categorias} reload={loadAll} showToast={showToast} />
+          <ConfiguracoesScreen configuracoes={data.configuracoes} piquetes={data.piquetes} categorias={data.categorias} cotacoesTipos={data.cotacoesTipos} reload={loadAll} showToast={showToast} />
         )}
       </main>
 
