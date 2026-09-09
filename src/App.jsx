@@ -539,7 +539,7 @@ function buildComparativoLotes(lotesAtivos, rateios, custosById, temFiltro, date
         valor: metrica === "porCabeca" ? (cabecas > 0 ? custoTotal / cabecas : 0) : custoTotal,
       };
     })
-    .sort((a, b) => b.valor - a.valor)
+    .sort((a, b) => b.valor - a.valor || a.nome.localeCompare(b.nome, "pt-BR"))
     .slice(0, 8);
 }
 const compactBRL = (v) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${Math.round(v)}`);
