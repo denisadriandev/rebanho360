@@ -120,6 +120,14 @@ const STATUS_OPTS = [["ativo", "Ativo"], ["vendido", "Vendido"], ["finalizado", 
 const TIPO_EVENTO_OPTS = [["vacinacao", "Vacinação"], ["medicamento", "Medicamento"], ["manejo", "Manejo"], ["movimentacao", "Movimentação"], ["morte", "Morte"], ["outro", "Outro"]];
 const TIPO_VENDA_OPTS = [["parcial", "Parcial"], ["total", "Total"]];
 const METODO_RATEIO_OPTS = [["proporcional_cabecas", "Proporcional a cabeças"], ["proporcional_peso", "Proporcional a peso"], ["manual", "Manual"]];
+// Sistema de engorda: enum fixo (ordem de intensidade), com regras de negócio não editáveis pelo usuário comum
+const SISTEMA_ENGORDA_OPTS = [["pastagem", "Pastagem"], ["semi_confinamento", "Semi-confinamento"], ["confinamento", "Confinamento"]];
+const SISTEMA_ENGORDA_LABELS = { pastagem: "Pastagem", semi_confinamento: "Semi-confinamento", confinamento: "Confinamento" };
+const SISTEMA_ENGORDA_REGRAS = {
+  pastagem: { ganhoDiarioKg: 0.5, pesoAlvoKg: 500 },
+  semi_confinamento: { ganhoDiarioKg: 0.8, pesoAlvoKg: 500 },
+  confinamento: { ganhoDiarioKg: 1.3, pesoAlvoKg: 500 },
+};
 
 const STATUS_LABELS = { ativo: "Ativo", vendido: "Vendido", finalizado: "Finalizado" };
 const ORIGEM_LABELS = { compra: "Compra", nascimento: "Nascimento", transferencia: "Transferência" };
@@ -205,6 +213,7 @@ const CONFIGURACOES_FIELDS = [
 ];
 const PIQUETE_FIELDS = [
   { name: "nome", label: "Nome do piquete", type: "text", required: true },
+  { name: "sistema_engorda", label: "Sistema de engorda", type: "select", options: SISTEMA_ENGORDA_OPTS, required: true },
   { name: "capacidade_cabecas", label: "Capacidade (cabeças)", type: "number", step: "1" },
   { name: "observacoes", label: "Observações", type: "textarea" },
 ];
@@ -977,6 +986,22 @@ function LotesList({ lotes, categorias, piquetes, onSelect, reload, showToast })
 }
 
 // =====================================================================
+// Estimativa de engorda (com base no sistema de engorda do piquete atual)
+// =====================================================================
+function calcularEstimativaEngorda(lote, piquetes) {
+  const piqueteAtual = (piquetes || []).find((p) => p.nome === lote.piquete);
+  if (!piqueteAtual) return null;
+  const regra = SISTEMA_ENGORDA_REGRAS[piqueteAtual.sistema_engorda];
+  if (!regra) return null;
+  const pesoAtual = Number(lote.peso_medio_atual) || 0;
+  if (pesoAtual <= 0) return { sistema: piqueteAtual.sistema_engorda, regra, semPeso: true };
+  const diferencaKg = Math.max(0, regra.pesoAlvoKg - pesoAtual);
+  const diasEstimados = Math.ceil(diferencaKg / regra.ganhoDiarioKg);
+  const dataEstimada = new Date(Date.now() + diasEstimados * 86400000);
+  return { sistema: piqueteAtual.sistema_engorda, regra, pesoAtual, diasEstimados, dataEstimada };
+}
+
+// =====================================================================
 // Detalhe do lote
 // =====================================================================
 function LoteDetail({ lote, data, onBack, reload, showToast }) {
@@ -992,11 +1017,16 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
   const eventos = data.eventos.filter((e) => e.lote_id === lote.id);
   const compras = data.compras.filter((c) => c.lote_id === lote.id);
   const vendas = data.vendas.filter((v) => v.lote_id === lote.id);
+  const historicoPiquetes = (data.historicoPiquetes || [])
+    .filter((h) => h.lote_id === lote.id)
+    .sort((a, b) => b.data_inicio.localeCompare(a.data_inicio));
+  const historicoFiltrado = historicoPiquetes.filter((h) => inDateRange(h.data_inicio, dateFrom, dateTo));
   const pesagensFiltradas = pesagensDesc.filter((p) => inDateRange(p.data_pesagem, dateFrom, dateTo));
   const eventosFiltrados = eventos.filter((e) => inDateRange(e.data_evento, dateFrom, dateTo));
   const comprasFiltradas = compras.filter((c) => inDateRange(c.data_compra, dateFrom, dateTo));
   const vendasFiltradas = vendas.filter((v) => inDateRange(v.data_venda, dateFrom, dateTo));
   const fields = loteFields(data.categorias, data.piquetes);
+  const estimativa = calcularEstimativaEngorda(lote, data.piquetes);
 
   const handleUpdateLote = async (values) => {
     await supaUpdate("lotes", lote.id, prepareValues(fields, values));
@@ -1062,6 +1092,7 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
     { id: "eventos", label: "Eventos" },
     { id: "compras", label: "Compras" },
     { id: "vendas", label: "Vendas" },
+    { id: "piquetes", label: "Piquetes" },
   ];
 
   return (
@@ -1127,6 +1158,41 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
 
       {subtab === "geral" && (
         <div className="space-y-4">
+          {estimativa && (
+            <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
+              <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>Estimativa de engorda</p>
+              <p className="text-xs mt-0.5 mb-3" style={{ color: COLORS.text }}>
+                Sistema {SISTEMA_ENGORDA_LABELS[estimativa.sistema]} · piquete {lote.piquete}
+              </p>
+              {estimativa.semPeso ? (
+                <p className="text-sm" style={{ color: COLORS.text }}>Registre uma pesagem para calcular a estimativa.</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs" style={{ color: COLORS.text }}>Ganho diário estimado</p>
+                    <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>{estimativa.regra.ganhoDiarioKg.toFixed(2)} kg/dia</p>
+                  </div>
+                  <div>
+                    <p className="text-xs" style={{ color: COLORS.text }}>Peso alvo de venda</p>
+                    <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>{estimativa.regra.pesoAlvoKg} kg</p>
+                  </div>
+                  <div>
+                    <p className="text-xs" style={{ color: COLORS.text }}>Tempo estimado até a venda</p>
+                    <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>{estimativa.diasEstimados === 0 ? "Já no peso alvo" : `${estimativa.diasEstimados} dias`}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs" style={{ color: COLORS.text }}>Data estimada de venda</p>
+                    <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>
+                      {estimativa.diasEstimados === 0 ? "—" : formatDate(estimativa.dataEstimada.toISOString().slice(0, 10))}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {!estimativa && lote.piquete && (
+            <EmptyState text={`Não foi possível calcular a estimativa: o piquete "${lote.piquete}" não está mais cadastrado em Configurações.`} />
+          )}
           {pesagensAsc.length >= 2 && (
             <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
               <p className="text-sm font-semibold mb-2" style={{ color: COLORS.textDark }}>Evolução do peso médio</p>
@@ -1228,6 +1294,34 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
             />
           )}
         />
+      )}
+
+      {subtab === "piquetes" && (
+        historicoFiltrado.length === 0 ? (
+          <EmptyState text={dateFrom || dateTo ? "Nenhuma movimentação encontrada para o período." : "Nenhuma movimentação de piquete registrada para este lote."} />
+        ) : (
+          <div className="space-y-2">
+            {historicoFiltrado.map((h) => {
+              const piqueteInfo = data.piquetes.find((p) => p.nome === h.piquete);
+              return (
+                <div key={h.id} className="rounded-xl border p-3.5" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium" style={{ color: COLORS.textDark }}>{h.piquete || "Sem piquete"}</p>
+                    {!h.data_fim && (
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: "#E5FCE5", color: "#0B7A0B" }}>Atual</span>
+                    )}
+                  </div>
+                  <p className="text-xs mt-0.5" style={{ color: COLORS.text }}>
+                    {piqueteInfo ? SISTEMA_ENGORDA_LABELS[piqueteInfo.sistema_engorda] : "Sistema de engorda não identificado"}
+                  </p>
+                  <p className="text-xs mt-1" style={{ color: COLORS.text }}>
+                    {formatDate(h.data_inicio)} até {h.data_fim ? formatDate(h.data_fim) : "hoje"}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )
       )}
 
       {showLoteForm && (
@@ -1510,12 +1604,12 @@ function ConfiguracoesScreen({ configuracoes, piquetes, categorias, categoriasDe
           items={piquetes}
           emptyText="Nenhum piquete cadastrado ainda."
           addLabel="Novo piquete"
-          onAdd={() => setPiqueteForm({})}
+          onAdd={() => setPiqueteForm({ sistema_engorda: "pastagem" })}
           renderItem={(p) => (
             <ItemCard
               key={p.id}
               title={p.nome}
-              subtitle={p.capacidade_cabecas ? `Capacidade: ${p.capacidade_cabecas} cabeças` : "Sem capacidade definida"}
+              subtitle={`${SISTEMA_ENGORDA_LABELS[p.sistema_engorda] || p.sistema_engorda}${p.capacidade_cabecas ? ` · Capacidade: ${p.capacidade_cabecas} cabeças` : ""}`}
               icon={MapPin}
               onEdit={() => setPiqueteForm(p)}
               onDelete={() => handleDeletePiquete(p.id)}
@@ -1661,7 +1755,7 @@ class ErrorBoundary extends Component {
 function Rebanho360App() {
   const [tab, setTab] = useState("dashboard");
   const [selectedLoteId, setSelectedLoteId] = useState(null);
-  const [data, setData] = useState({ lotes: [], pesagens: [], eventos: [], compras: [], vendas: [], custos: [], rateios: [], configuracoes: null, piquetes: [], categorias: [], categoriasDespesa: [], cotacoesTipos: [] });
+  const [data, setData] = useState({ lotes: [], pesagens: [], eventos: [], compras: [], vendas: [], custos: [], rateios: [], configuracoes: null, piquetes: [], categorias: [], categoriasDespesa: [], cotacoesTipos: [], historicoPiquetes: [] });
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
@@ -1674,7 +1768,7 @@ function Rebanho360App() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoesRows, piquetes, categorias, categoriasDespesa, cotacoesTipos] = await Promise.all([
+      const [lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoesRows, piquetes, categorias, categoriasDespesa, cotacoesTipos, historicoPiquetes] = await Promise.all([
         supaGet("lotes?select=*&order=data_entrada.desc"),
         supaGet("pesagens?select=*&order=data_pesagem.desc"),
         supaGet("eventos?select=*&order=data_evento.desc"),
@@ -1687,8 +1781,9 @@ function Rebanho360App() {
         supaGet("categorias_gado?select=*&order=ordem.asc,nome.asc"),
         supaGet("categorias_despesa?select=*&order=ordem.asc,nome.asc"),
         supaGet("cotacoes_tipos?select=*&order=ordem.asc"),
+        supaGet("lote_piquete_historico?select=*&order=data_inicio.desc"),
       ]);
-      setData({ lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoes: configuracoesRows[0] || null, piquetes, categorias, categoriasDespesa, cotacoesTipos });
+      setData({ lotes, pesagens, eventos, compras, vendas, custos, rateios, configuracoes: configuracoesRows[0] || null, piquetes, categorias, categoriasDespesa, cotacoesTipos, historicoPiquetes });
     } catch (err) {
       showToast(err.message, "error");
     } finally {
