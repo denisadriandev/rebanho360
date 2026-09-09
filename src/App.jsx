@@ -655,6 +655,16 @@ function buildComparativoLotes(lotesAtivos, rateios, custosById, temFiltro, date
     .slice(0, 8);
 }
 const compactBRL = (v) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `${Math.round(v)}`);
+const truncateLabel = (v, max = 16) => (v && v.length > max ? `${v.slice(0, max - 1)}…` : v);
+// Tick customizado para eixos de categoria: evita o auto-wrap padrão do recharts, que
+// quebra rótulos longos em várias linhas sem espaço entre elas (texto ilegível).
+function CategoriaAxisTick({ x, y, payload }) {
+  return (
+    <text x={x} y={y} dy={4} textAnchor="end" fontSize={11} fill={COLORS.text}>
+      {truncateLabel(payload.value)}
+    </text>
+  );
+}
 
 function CotacaoArrobaCard({ tipos, cotacao, onRetry }) {
   const tiposVisiveis = (tipos || []).filter((t) => t.exibir_dashboard).sort((a, b) => a.ordem - b.ordem);
@@ -873,7 +883,7 @@ function Dashboard({ data, onNavigate }) {
               <BarChart data={comparativoLotes} layout="vertical" margin={{ left: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 11, fill: COLORS.text }} tickFormatter={compactBRL} />
-                <YAxis type="category" dataKey="nome" tick={{ fontSize: 11, fill: COLORS.text }} width={72} />
+                <YAxis type="category" dataKey="nome" tick={<CategoriaAxisTick />} width={72} />
                 <Tooltip formatter={(v) => [formatBRL(v), comparativoMetrica === "porCabeca" ? "Custo por cabeça" : "Despesa total rateada"]} />
                 <Bar dataKey="valor" fill={COLORS.primary} radius={[0, 4, 4, 0]} isAnimationActive={false} />
               </BarChart>
@@ -1417,6 +1427,17 @@ function LoteDetail({ lote, data, onBack, reload, showToast }) {
 // =====================================================================
 // Despesas e rateio
 // =====================================================================
+function buildComparativoCategorias(custosFiltrados) {
+  const porCategoria = {};
+  custosFiltrados.forEach((c) => {
+    const key = c.categoria || "Sem categoria";
+    porCategoria[key] = (porCategoria[key] || 0) + Number(c.valor_total || 0);
+  });
+  return Object.entries(porCategoria)
+    .map(([categoria, valor]) => ({ categoria, valor }))
+    .sort((a, b) => b.valor - a.valor || a.categoria.localeCompare(b.categoria, "pt-BR"));
+}
+
 function DespesasScreen({ custos, rateios, lotes, categoriasDespesa, metodoRateioPadrao, reload, showToast }) {
   const [showForm, setShowForm] = useState(false);
   const [selected, setSelected] = useState(null);
@@ -1440,6 +1461,8 @@ function DespesasScreen({ custos, rateios, lotes, categoriasDespesa, metodoRatei
   const handleDelete = async (id) => { await supaDelete("custos", id); await reload(); showToast("Despesa excluída."); setSelected(null); };
 
   const totalGeral = custosFiltrados.reduce((s, c) => s + Number(c.valor_total || 0), 0);
+  const comparativoCategorias = buildComparativoCategorias(custosFiltrados);
+  const temFiltroPeriodo = !!(dateFrom || dateTo);
 
   return (
     <div className="space-y-4 pt-1">
@@ -1460,6 +1483,25 @@ function DespesasScreen({ custos, rateios, lotes, categoriasDespesa, metodoRatei
       </div>
 
       <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} onClear={() => { setDateFrom(""); setDateTo(""); }} />
+
+      {custosFiltrados.length > 0 && (
+        <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
+          <p className="text-sm font-semibold mb-2" style={{ color: COLORS.textDark }}>
+            Despesas por categoria{temFiltroPeriodo ? " (período filtrado)" : ""}
+          </p>
+          <div style={{ width: "100%", height: Math.max(140, comparativoCategorias.length * 34) }}>
+            <ResponsiveContainer>
+              <BarChart data={comparativoCategorias} layout="vertical" margin={{ left: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: COLORS.text }} tickFormatter={compactBRL} />
+                <YAxis type="category" dataKey="categoria" tick={<CategoriaAxisTick />} width={110} />
+                <Tooltip formatter={(v) => [formatBRL(v), "Despesa"]} />
+                <Bar dataKey="valor" fill={COLORS.primary} radius={[0, 4, 4, 0]} isAnimationActive={false} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
 
       {custosFiltrados.length === 0 ? (
         <EmptyState text="Nenhuma despesa encontrada para o período." />
