@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Component } from "react";
+import { useState, useEffect, useCallback, useRef, Component } from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -35,6 +35,14 @@ async function supaInsert(table, data) {
   if (!res.ok) throw new Error((await res.json())?.message || "Erro ao salvar");
   return res.json();
 }
+async function supaUpsertIgnore(table, data, onConflict) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?on_conflict=${onConflict}`, {
+    method: "POST",
+    headers: { ...headers, Prefer: "resolution=ignore-duplicates,return=minimal" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error((await res.json())?.message || "Erro ao salvar");
+}
 async function supaUpdate(table, id, data) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
     method: "PATCH",
@@ -68,6 +76,35 @@ async function fetchCotacaoArroba() {
   const res = await fetch(COTACAO_API_URL);
   if (!res.ok) throw new Error("Não foi possível obter a cotação agora");
   return res.json();
+}
+
+// Registra no histórico (no máx. 1 leitura por dia por tipo) para alimentar o mini
+// gráfico de evolução e a média móvel no Painel. A API pública não oferece série
+// histórica nem previsão futura, então o histórico é construído aos poucos pelo
+// próprio app a cada vez que a cotação é buscada.
+async function registrarHistoricoCotacoes(payload, cotacoesTipos) {
+  await Promise.all(
+    (cotacoesTipos || []).map(async (t) => {
+      const valor = payload?.[t.campo_api];
+      if (valor === null || valor === undefined) return;
+      try {
+        // upsert atômico (via índice único em campo_api+dia, ignorando conflito): evita
+        // duplicar a leitura do dia mesmo com chamadas concorrentes (ex.: StrictMode)
+        await supaUpsertIgnore("cotacoes_historico", { campo_api: t.campo_api, valor }, "campo_api,dia");
+      } catch {
+        // histórico é um extra; nunca deve travar a exibição da cotação atual
+      }
+    })
+  );
+}
+function resumoHistoricoCotacao(rows) {
+  if (!rows || rows.length === 0) return null;
+  const media30 = rows.reduce((s, r) => s + Number(r.valor), 0) / rows.length;
+  return {
+    media30,
+    dias: rows.length,
+    ultimasCinco: rows.slice(-5).map((r) => ({ data: r.capturado_em, valor: Number(r.valor) })),
+  };
 }
 
 // =====================================================================
@@ -677,7 +714,20 @@ function CategoriaAxisTick({ x, y, payload }) {
   );
 }
 
-function CotacaoArrobaCard({ tipos, cotacao, onRetry }) {
+function MiniSparkline({ pontos, width = 64, height = 24 }) {
+  if (!pontos || pontos.length < 2) return null;
+  return (
+    <div style={{ width, height }} className="flex-shrink-0">
+      <ResponsiveContainer>
+        <LineChart data={pontos} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+          <Line type="monotone" dataKey="valor" stroke={COLORS.accent} strokeWidth={1.5} dot={false} isAnimationActive={false} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function CotacaoArrobaCard({ tipos, cotacao, historico, onRetry }) {
   const tiposVisiveis = (tipos || []).filter((t) => t.exibir_dashboard).sort((a, b) => a.ordem - b.ordem);
   if (tiposVisiveis.length === 0) return null;
   const destaque = tiposVisiveis.slice(0, 2);
@@ -708,25 +758,40 @@ function CotacaoArrobaCard({ tipos, cotacao, onRetry }) {
           <div className="grid grid-cols-2 gap-4 mt-3">
             {destaque.map((t) => {
               const valor = cotacao.payload?.[t.campo_api];
+              const resumo = historico?.[t.campo_api];
               return (
                 <div key={t.id}>
                   <p className="text-2xl font-bold text-white">{valor != null ? formatBRL(valor) : "—"}</p>
                   <p className="text-xs text-white opacity-70 mt-0.5">{t.nome} · {t.unidade}</p>
+                  <div className="flex items-center gap-2 mt-2">
+                    {resumo ? (
+                      <>
+                        <MiniSparkline pontos={resumo.ultimasCinco} />
+                        <p className="text-xs text-white opacity-60">Média {resumo.dias}d<br />{formatBRL(resumo.media30)}</p>
+                      </>
+                    ) : (
+                      <p className="text-xs text-white opacity-50">Coletando histórico…</p>
+                    )}
+                  </div>
                 </div>
               );
             })}
           </div>
           {extras.length > 0 && (
             <div className="mt-4 pt-3 border-t" style={{ borderColor: "rgba(255,255,255,0.15)" }}>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {extras.map((t) => {
                   const valor = cotacao.payload?.[t.campo_api];
+                  const resumo = historico?.[t.campo_api];
                   return (
-                    <div key={t.id} className="flex items-center justify-between text-sm">
-                      <span className="text-white opacity-70">{t.nome}</span>
-                      <span className="text-white font-medium">
-                        {valor != null ? formatBRL(valor) : "—"} <span className="opacity-50 font-normal">{t.unidade}</span>
-                      </span>
+                    <div key={t.id} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="text-white opacity-70 flex-shrink-0">{t.nome}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        {resumo && <MiniSparkline pontos={resumo.ultimasCinco} width={48} height={18} />}
+                        <span className="text-white font-medium flex-shrink-0">
+                          {valor != null ? formatBRL(valor) : "—"} <span className="opacity-50 font-normal">{t.unidade}</span>
+                        </span>
+                      </div>
                     </div>
                   );
                 })}
@@ -751,13 +816,48 @@ function Dashboard({ data, onNavigate }) {
   const [chartMode, setChartMode] = useState("mensal");
   const [comparativoMetrica, setComparativoMetrica] = useState("total");
   const [cotacao, setCotacao] = useState({ loading: true, error: null, payload: null });
+  const [historicoCotacao, setHistoricoCotacao] = useState({});
+  // cotacoesTipos muda de referência a cada reload de qualquer parte do app; usamos um
+  // ref para sempre ler o valor atual sem forçar o efeito abaixo a rodar de novo (o que
+  // bateria a API pública externa toda vez que qualquer outra tela salvasse algo).
+  const cotacoesTiposRef = useRef(cotacoesTipos);
+  cotacoesTiposRef.current = cotacoesTipos;
+
+  const carregarHistoricoCotacao = useCallback(async () => {
+    const tipos = cotacoesTiposRef.current;
+    if (!tipos || tipos.length === 0) return;
+    try {
+      const desde = new Date();
+      desde.setDate(desde.getDate() - 30);
+      const campos = tipos.map((t) => `"${t.campo_api}"`).join(",");
+      const rows = await supaGet(
+        `cotacoes_historico?campo_api=in.(${campos})&capturado_em=gte.${desde.toISOString().slice(0, 10)}&order=capturado_em.asc`
+      );
+      const porTipo = {};
+      rows.forEach((r) => {
+        if (!porTipo[r.campo_api]) porTipo[r.campo_api] = [];
+        porTipo[r.campo_api].push(r);
+      });
+      const resumos = {};
+      Object.entries(porTipo).forEach(([campo, linhas]) => {
+        resumos[campo] = resumoHistoricoCotacao(linhas);
+      });
+      setHistoricoCotacao(resumos);
+    } catch {
+      // mini gráfico é um extra; falha silenciosa nao deve afetar o resto do painel
+    }
+  }, []);
 
   const carregarCotacao = useCallback(() => {
     setCotacao({ loading: true, error: null, payload: null });
     fetchCotacaoArroba()
-      .then((payload) => setCotacao({ loading: false, error: null, payload }))
+      .then(async (payload) => {
+        setCotacao({ loading: false, error: null, payload });
+        await registrarHistoricoCotacoes(payload, cotacoesTiposRef.current);
+        carregarHistoricoCotacao();
+      })
       .catch((err) => setCotacao({ loading: false, error: err.message, payload: null }));
-  }, []);
+  }, [carregarHistoricoCotacao]);
   useEffect(() => { carregarCotacao(); }, [carregarCotacao]);
 
   const lotesAtivos = lotes.filter((l) => l.status === "ativo");
@@ -795,7 +895,7 @@ function Dashboard({ data, onNavigate }) {
       </div>
 
       <div className="lg:grid lg:grid-cols-2 lg:gap-4 lg:items-stretch">
-        <CotacaoArrobaCard tipos={cotacoesTipos} cotacao={cotacao} onRetry={carregarCotacao} />
+        <CotacaoArrobaCard tipos={cotacoesTipos} cotacao={cotacao} historico={historicoCotacao} onRetry={carregarCotacao} />
 
         <div className="rounded-2xl p-5 mt-5 lg:mt-0 h-full flex flex-col justify-center" style={{ backgroundColor: COLORS.primary }}>
           <p className="text-sm text-white opacity-80">Despesa do rebanho este mês</p>
