@@ -843,12 +843,13 @@ function Dashboard({ data, onNavigate }) {
     try {
       // Últimas 30 leituras registradas (não 30 dias corridos): a CEPEA só publica em
       // dia útil, então uma janela de calendário deixaria de fora leituras mais antigas
-      // mesmo com 30 valores já cadastrados.
+      // mesmo com 30 valores já cadastrados. Busca 31 (30 anteriores + a de hoje) porque
+      // resumoHistoricoCotacao descarta a leitura de hoje antes de calcular as médias.
       const resumos = {};
       await Promise.all(
         tipos.map(async (t) => {
           const rows = await supaGet(
-            `cotacoes_historico?campo_api=eq.${t.campo_api}&order=capturado_em.desc&limit=30`
+            `cotacoes_historico?campo_api=eq.${t.campo_api}&order=capturado_em.desc&limit=31`
           );
           resumos[t.campo_api] = resumoHistoricoCotacao([...rows].reverse());
         })
