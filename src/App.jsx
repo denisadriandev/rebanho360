@@ -734,7 +734,7 @@ function LinhaVariacao({ label, valorAtual, referencia, size = 11 }) {
   return (
     <div className="flex items-center gap-1" style={{ color: cor, fontSize: size }}>
       <Icon size={size} color={cor} />
-      <span>{positiva ? "+" : ""}{variacao.toFixed(1)}% {label}</span>
+      <span>{positiva ? "+" : ""}{variacao.toFixed(1)}% {label} ({formatBRL(referencia)})</span>
     </div>
   );
 }
