@@ -99,21 +99,18 @@ async function registrarHistoricoCotacoes(payload, cotacoesTipos) {
 }
 function resumoHistoricoCotacao(rows) {
   if (!rows || rows.length === 0) return null;
-  const media30 = rows.reduce((s, r) => s + Number(r.valor), 0) / rows.length;
-  // últimos registros ANTERIORES ao de hoje, para comparar a cotação atual contra uma
-  // média que não inclua ela mesma
+  // registros ANTERIORES ao de hoje, para comparar a cotação atual contra referências
+  // que não incluam ela mesma
   const hoje = todayISO();
   const anteriores = rows.filter((r) => (r.dia || r.capturado_em?.slice(0, 10)) !== hoje);
-  const ultimosTres = anteriores.slice(-3);
-  const mediaUltimosTres = ultimosTres.length > 0
-    ? ultimosTres.reduce((s, r) => s + Number(r.valor), 0) / ultimosTres.length
-    : null;
+  if (anteriores.length === 0) return null;
+  const media = (arr) => arr.reduce((s, r) => s + Number(r.valor), 0) / arr.length;
+  const ultimasCinco = anteriores.slice(-5);
+  const ultimasTrinta = anteriores.slice(-30);
   return {
-    media30,
-    dias: rows.length,
-    ultimasCinco: rows.slice(-5).map((r) => ({ data: r.capturado_em, valor: Number(r.valor) })),
-    mediaUltimosTres,
-    qtdUltimosTres: ultimosTres.length,
+    valorAnterior: Number(anteriores[anteriores.length - 1].valor),
+    media5: media(ultimasCinco),
+    media30: media(ultimasTrinta),
   };
 }
 function variacaoPercentual(valorAtual, referencia) {
@@ -728,33 +725,28 @@ function CategoriaAxisTick({ x, y, payload }) {
   );
 }
 
-function MiniSparkline({ pontos, width = 64, height = 24 }) {
-  if (!pontos || pontos.length < 2) return null;
-  return (
-    <div style={{ width, height }} className="flex-shrink-0">
-      <ResponsiveContainer>
-        <LineChart data={pontos} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-          <Line type="monotone" dataKey="valor" stroke={COLORS.accent} strokeWidth={1.5} dot={false} isAnimationActive={false} />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-function VariacaoBadge({ valorAtual, resumo, size = 11, compacto = false }) {
-  if (!resumo || resumo.mediaUltimosTres == null) return null;
-  const variacao = variacaoPercentual(valorAtual, resumo.mediaUltimosTres);
+function LinhaVariacao({ label, valorAtual, referencia, size = 11 }) {
+  const variacao = variacaoPercentual(valorAtual, referencia);
   if (variacao == null) return null;
   const positiva = variacao >= 0;
   const cor = positiva ? COLORS.accent : "#FF6B6B";
   const Icon = positiva ? TrendingUp : TrendingDown;
   return (
-    <span className="flex items-center gap-0.5 flex-shrink-0" style={{ color: cor }}>
+    <div className="flex items-center gap-1" style={{ color: cor, fontSize: size }}>
       <Icon size={size} color={cor} />
-      <span style={{ fontSize: size }}>
-        {positiva ? "+" : ""}{variacao.toFixed(1)}%{!compacto && ` vs média (${resumo.qtdUltimosTres} ant.)`}
-      </span>
-    </span>
+      <span>{positiva ? "+" : ""}{variacao.toFixed(1)}% {label}</span>
+    </div>
+  );
+}
+
+function ComparacoesCotacao({ valorAtual, resumo, size = 11 }) {
+  if (!resumo) return <p className="text-xs text-white opacity-50 mt-2">Coletando histórico…</p>;
+  return (
+    <div className="mt-2 space-y-0.5">
+      <LinhaVariacao label="vs anterior" valorAtual={valorAtual} referencia={resumo.valorAnterior} size={size} />
+      <LinhaVariacao label="vs média 5" valorAtual={valorAtual} referencia={resumo.media5} size={size} />
+      <LinhaVariacao label="vs média 30" valorAtual={valorAtual} referencia={resumo.media30} size={size} />
+    </div>
   );
 }
 
@@ -794,19 +786,7 @@ function CotacaoArrobaCard({ tipos, cotacao, historico, onRetry }) {
                 <div key={t.id}>
                   <p className="text-2xl font-bold text-white">{valor != null ? formatBRL(valor) : "—"}</p>
                   <p className="text-xs text-white opacity-70 mt-0.5">{t.nome} · {t.unidade}</p>
-                  <div className="flex items-center gap-2 mt-2">
-                    {resumo ? (
-                      <>
-                        <MiniSparkline pontos={resumo.ultimasCinco} />
-                        <p className="text-xs text-white opacity-60">Média {resumo.dias}d<br />{formatBRL(resumo.media30)}</p>
-                      </>
-                    ) : (
-                      <p className="text-xs text-white opacity-50">Coletando histórico…</p>
-                    )}
-                  </div>
-                  <div className="mt-1">
-                    <VariacaoBadge valorAtual={valor} resumo={resumo} />
-                  </div>
+                  <ComparacoesCotacao valorAtual={valor} resumo={resumo} />
                 </div>
               );
             })}
@@ -825,12 +805,7 @@ function CotacaoArrobaCard({ tipos, cotacao, historico, onRetry }) {
                           {valor != null ? formatBRL(valor) : "—"} <span className="opacity-50 font-normal">{t.unidade}</span>
                         </span>
                       </div>
-                      {resumo && (
-                        <div className="flex items-center gap-2 mt-1">
-                          <MiniSparkline pontos={resumo.ultimasCinco} width={40} height={16} />
-                          <VariacaoBadge valorAtual={valor} resumo={resumo} size={10} compacto />
-                        </div>
-                      )}
+                      <ComparacoesCotacao valorAtual={valor} resumo={resumo} size={10} />
                     </div>
                   );
                 })}
