@@ -5,7 +5,7 @@ import {
 import {
   Home, Layers, Wallet, Plus, X, Trash2, Pencil, ArrowLeft, Loader2,
   Scale, Syringe, ShoppingCart, Tag, ChevronRight, Settings, MapPin,
-  TrendingUp, RefreshCw, AlertCircle, HelpCircle,
+  TrendingUp, TrendingDown, RefreshCw, AlertCircle, HelpCircle,
 } from "lucide-react";
 
 // =====================================================================
@@ -100,11 +100,25 @@ async function registrarHistoricoCotacoes(payload, cotacoesTipos) {
 function resumoHistoricoCotacao(rows) {
   if (!rows || rows.length === 0) return null;
   const media30 = rows.reduce((s, r) => s + Number(r.valor), 0) / rows.length;
+  // últimos registros ANTERIORES ao de hoje, para comparar a cotação atual contra uma
+  // média que não inclua ela mesma
+  const hoje = todayISO();
+  const anteriores = rows.filter((r) => (r.dia || r.capturado_em?.slice(0, 10)) !== hoje);
+  const ultimosTres = anteriores.slice(-3);
+  const mediaUltimosTres = ultimosTres.length > 0
+    ? ultimosTres.reduce((s, r) => s + Number(r.valor), 0) / ultimosTres.length
+    : null;
   return {
     media30,
     dias: rows.length,
     ultimasCinco: rows.slice(-5).map((r) => ({ data: r.capturado_em, valor: Number(r.valor) })),
+    mediaUltimosTres,
+    qtdUltimosTres: ultimosTres.length,
   };
+}
+function variacaoPercentual(valorAtual, referencia) {
+  if (valorAtual == null || referencia == null || referencia === 0) return null;
+  return ((Number(valorAtual) - referencia) / referencia) * 100;
 }
 
 // =====================================================================
@@ -727,6 +741,23 @@ function MiniSparkline({ pontos, width = 64, height = 24 }) {
   );
 }
 
+function VariacaoBadge({ valorAtual, resumo, size = 11, compacto = false }) {
+  if (!resumo || resumo.mediaUltimosTres == null) return null;
+  const variacao = variacaoPercentual(valorAtual, resumo.mediaUltimosTres);
+  if (variacao == null) return null;
+  const positiva = variacao >= 0;
+  const cor = positiva ? COLORS.accent : "#FF6B6B";
+  const Icon = positiva ? TrendingUp : TrendingDown;
+  return (
+    <span className="flex items-center gap-0.5 flex-shrink-0" style={{ color: cor }}>
+      <Icon size={size} color={cor} />
+      <span style={{ fontSize: size }}>
+        {positiva ? "+" : ""}{variacao.toFixed(1)}%{!compacto && ` vs média (${resumo.qtdUltimosTres} ant.)`}
+      </span>
+    </span>
+  );
+}
+
 function CotacaoArrobaCard({ tipos, cotacao, historico, onRetry }) {
   const tiposVisiveis = (tipos || []).filter((t) => t.exibir_dashboard).sort((a, b) => a.ordem - b.ordem);
   if (tiposVisiveis.length === 0) return null;
@@ -773,6 +804,9 @@ function CotacaoArrobaCard({ tipos, cotacao, historico, onRetry }) {
                       <p className="text-xs text-white opacity-50">Coletando histórico…</p>
                     )}
                   </div>
+                  <div className="mt-1">
+                    <VariacaoBadge valorAtual={valor} resumo={resumo} />
+                  </div>
                 </div>
               );
             })}
@@ -784,14 +818,19 @@ function CotacaoArrobaCard({ tipos, cotacao, historico, onRetry }) {
                   const valor = cotacao.payload?.[t.campo_api];
                   const resumo = historico?.[t.campo_api];
                   return (
-                    <div key={t.id} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="text-white opacity-70 flex-shrink-0">{t.nome}</span>
-                      <div className="flex items-center gap-2 min-w-0">
-                        {resumo && <MiniSparkline pontos={resumo.ultimasCinco} width={48} height={18} />}
+                    <div key={t.id} className="text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-white opacity-70">{t.nome}</span>
                         <span className="text-white font-medium flex-shrink-0">
                           {valor != null ? formatBRL(valor) : "—"} <span className="opacity-50 font-normal">{t.unidade}</span>
                         </span>
                       </div>
+                      {resumo && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <MiniSparkline pontos={resumo.ultimasCinco} width={40} height={16} />
+                          <VariacaoBadge valorAtual={valor} resumo={resumo} size={10} compacto />
+                        </div>
+                      )}
                     </div>
                   );
                 })}
