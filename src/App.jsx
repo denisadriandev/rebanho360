@@ -683,7 +683,7 @@ function CotacaoArrobaCard({ tipos, cotacao, onRetry }) {
   const destaque = tiposVisiveis.slice(0, 2);
   const extras = tiposVisiveis.slice(2);
   return (
-    <div className="rounded-2xl p-5" style={{ backgroundColor: COLORS.primary }}>
+    <div className="rounded-2xl p-5 h-full" style={{ backgroundColor: COLORS.primary }}>
       <div className="flex items-center gap-1.5">
         <TrendingUp size={16} color={COLORS.accent} />
         <p className="text-sm text-white opacity-80">Cotação da arroba — mercado</p>
@@ -793,10 +793,10 @@ function Dashboard({ data, onNavigate }) {
         </p>
       </div>
 
-      <div className="lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
+      <div className="lg:grid lg:grid-cols-2 lg:gap-4 lg:items-stretch">
         <CotacaoArrobaCard tipos={cotacoesTipos} cotacao={cotacao} onRetry={carregarCotacao} />
 
-        <div className="rounded-2xl p-5 mt-5 lg:mt-0" style={{ backgroundColor: COLORS.primary }}>
+        <div className="rounded-2xl p-5 mt-5 lg:mt-0 h-full flex flex-col justify-center" style={{ backgroundColor: COLORS.primary }}>
           <p className="text-sm text-white opacity-80">Despesa do rebanho este mês</p>
           <p className="text-3xl font-bold text-white mt-1">{formatBRL(custoMes)}</p>
           <div className="flex items-center gap-1.5 mt-2">
@@ -826,8 +826,8 @@ function Dashboard({ data, onNavigate }) {
         </div>
       </div>
 
-      <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
-      <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
+      <div className="space-y-4 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-stretch">
+      <div className="rounded-xl border p-4 h-full" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
         <div className="flex items-center justify-between mb-1">
           <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>
             Despesas ao longo do tempo{temFiltro ? " (período filtrado)" : ""}
@@ -865,7 +865,7 @@ function Dashboard({ data, onNavigate }) {
         )}
       </div>
 
-      <div className="rounded-xl border p-4" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
+      <div className="rounded-xl border p-4 h-full" style={{ borderColor: COLORS.border, backgroundColor: COLORS.surface }}>
         <div className="flex items-center justify-between mb-2">
           <p className="text-sm font-semibold" style={{ color: COLORS.textDark }}>
             Despesa rateada por lote{temFiltro ? " (período filtrado)" : ""}
