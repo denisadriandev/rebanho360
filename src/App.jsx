@@ -827,21 +827,18 @@ function Dashboard({ data, onNavigate }) {
     const tipos = cotacoesTiposRef.current;
     if (!tipos || tipos.length === 0) return;
     try {
-      const desde = new Date();
-      desde.setDate(desde.getDate() - 30);
-      const campos = tipos.map((t) => `"${t.campo_api}"`).join(",");
-      const rows = await supaGet(
-        `cotacoes_historico?campo_api=in.(${campos})&capturado_em=gte.${desde.toISOString().slice(0, 10)}&order=capturado_em.asc`
-      );
-      const porTipo = {};
-      rows.forEach((r) => {
-        if (!porTipo[r.campo_api]) porTipo[r.campo_api] = [];
-        porTipo[r.campo_api].push(r);
-      });
+      // Últimas 30 leituras registradas (não 30 dias corridos): a CEPEA só publica em
+      // dia útil, então uma janela de calendário deixaria de fora leituras mais antigas
+      // mesmo com 30 valores já cadastrados.
       const resumos = {};
-      Object.entries(porTipo).forEach(([campo, linhas]) => {
-        resumos[campo] = resumoHistoricoCotacao(linhas);
-      });
+      await Promise.all(
+        tipos.map(async (t) => {
+          const rows = await supaGet(
+            `cotacoes_historico?campo_api=eq.${t.campo_api}&order=capturado_em.desc&limit=30`
+          );
+          resumos[t.campo_api] = resumoHistoricoCotacao([...rows].reverse());
+        })
+      );
       setHistoricoCotacao(resumos);
     } catch {
       // mini gráfico é um extra; falha silenciosa nao deve afetar o resto do painel
