@@ -783,6 +783,7 @@ function Dashboard({ data, onNavigate }) {
   const custosById = Object.fromEntries(custos.map((c) => [c.id, c]));
   const serieTemporal = buildSerieTemporal(temFiltro ? custosPeriodo : custos, chartMode, temFiltro, dateFrom, dateTo);
   const comparativoLotes = buildComparativoLotes(lotesAtivos, rateios, custosById, temFiltro, dateFrom, dateTo, comparativoMetrica);
+  const alturaGraficosDespesas = Math.max(200, comparativoLotes.length * 34, 140);
 
   return (
     <div className="space-y-5 pt-1">
@@ -851,7 +852,7 @@ function Dashboard({ data, onNavigate }) {
         {custos.length === 0 ? (
           <EmptyState text="Nenhuma despesa lançada ainda." />
         ) : (
-          <div style={{ width: "100%", height: 200 }}>
+          <div className="mt-2" style={{ width: "100%", height: alturaGraficosDespesas }}>
             <ResponsiveContainer>
               <BarChart data={serieTemporal} margin={{ left: -12 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} vertical={false} />
@@ -889,7 +890,7 @@ function Dashboard({ data, onNavigate }) {
         {comparativoLotes.length === 0 ? (
           <EmptyState text="Nenhum lote ativo para comparar." />
         ) : (
-          <div style={{ width: "100%", height: Math.max(140, comparativoLotes.length * 34) }}>
+          <div className="mt-2" style={{ width: "100%", height: alturaGraficosDespesas }}>
             <ResponsiveContainer>
               <BarChart data={comparativoLotes} layout="vertical" margin={{ left: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={COLORS.border} horizontal={false} />
